@@ -300,6 +300,9 @@ def sync_master_data_smart() -> Dict[str, Any]:
     final_data = rebuilt_rows
 
     meta["last_sync"] = str(now_datetime())
+    settings = frappe.get_single("ChangAI Settings")
+    settings.last_masterdata_sync = meta["last_sync"]
+    settings.save(ignore_permissions=True)
     payload_out = {"_meta": meta, "data": final_data}
     file_doc = write_filedoctype(file_name, payload_out, folder=RAG_FOLDER)
 
@@ -772,6 +775,10 @@ def sync_tables_and_schema_smart() -> Dict[str, Any]:
     }
     _clean_schema_fields(by_table)
     meta["last_sync"] = str(now_datetime())
+    settings = frappe.get_single("ChangAI Settings")
+    settings.last_schema_sync = meta["last_sync"]
+    settings.save(ignore_permissions=True)
+
     try:
         _write_schema_outputs(meta, by_table, current_tables)
     except Exception as e:

@@ -31,7 +31,7 @@
         :class="isListening ? 'border-red-200 bg-red-100 text-red-600 shadow-[0_10px_20px_-18px_rgba(220,38,38,0.9)] hover:bg-red-100 hover:text-red-600' : ''"
         :title="micButtonTitle"
         :aria-label="micButtonTitle"
-        :disabled="disabled || !recognitionSupported || requestingMic"
+        :disabled="disabled || !recognitionSupported || requestingMic || recognitionStarting || recognitionStopping"
         @click="toggleVoiceInput"
       >
         <!-- Stop icon while listening -->
@@ -119,6 +119,8 @@ const inputRef = ref(null)
 const isListening = ref(false)
 const recognitionSupported = ref(false)
 const requestingMic = ref(false)
+const recognitionStarting = ref(false)
+const recognitionStopping = ref(false)
 const micPermissionGranted = ref(false)
 const toastVisible = ref(false)
 const toastMessage = ref('')
@@ -127,11 +129,14 @@ const micUnavailableReason = ref('Voice input is unavailable in this browser/con
 
 let recognition = null
 let toastTimer = null
+let stopFallbackTimer = null
 const toastKey = ref('')
 const submitOnVoiceStop = ref(false)
 
 const micButtonTitle = computed(() => {
   if (requestingMic.value) return 'Requesting microphone permission...'
+  if (recognitionStarting.value) return 'Starting voice input...'
+  if (recognitionStopping.value) return 'Stopping voice input...'
   if (!recognitionSupported.value) return 'Voice input is unavailable in this browser/context'
   return isListening.value ? 'Stop voice input' : 'Start voice input'
 })
@@ -178,11 +183,17 @@ function initSpeechRecognition() {
 
   recognition.onstart = () => {
     isListening.value = true
+    recognitionStarting.value = false
+    recognitionStopping.value = false
+    clearStopFallbackTimer()
     showToast('Listening... Tap mic to stop', 'listening', { persistent: true, key: 'listening' })
   }
 
   recognition.onend = () => {
     isListening.value = false
+    recognitionStarting.value = false
+    recognitionStopping.value = false
+    clearStopFallbackTimer()
     if (toastKey.value === 'listening') {
       hideToast()
     }
@@ -195,6 +206,9 @@ function initSpeechRecognition() {
 
   recognition.onerror = (event) => {
     isListening.value = false
+    recognitionStarting.value = false
+    recognitionStopping.value = false
+    clearStopFallbackTimer()
     submitOnVoiceStop.value = false
     if (event?.error === 'not-allowed' || event?.error === 'service-not-allowed') {
       showToast('Microphone permission denied. Please allow microphone access in browser settings.', 'error')
@@ -223,15 +237,52 @@ function initSpeechRecognition() {
   }
 }
 
+function clearStopFallbackTimer() {
+  if (!stopFallbackTimer) return
+  clearTimeout(stopFallbackTimer)
+  stopFallbackTimer = null
+}
+
+function stopVoiceInput(options = {}) {
+  const { submitAfterStop = false } = options
+  if (!recognition) return
+
+  submitOnVoiceStop.value = submitAfterStop
+  recognitionStarting.value = false
+  recognitionStopping.value = true
+  clearStopFallbackTimer()
+
+  try {
+    recognition.stop()
+  } catch (_err) {
+    recognitionStopping.value = false
+    if (submitAfterStop) {
+      submitOnVoiceStop.value = false
+      handleSubmit()
+    }
+    return
+  }
+
+  stopFallbackTimer = setTimeout(() => {
+    if (!recognition) return
+    if (!isListening.value && !recognitionStopping.value) return
+    try {
+      recognition.abort()
+    } catch (_err) {
+      recognitionStopping.value = false
+      submitOnVoiceStop.value = false
+    }
+  }, 1200)
+}
+
 function toggleVoiceInput() {
   if (!recognitionSupported.value || !recognition) {
     showToast(micUnavailableReason.value, 'error')
     return
   }
 
-  if (isListening.value) {
-    submitOnVoiceStop.value = true
-    recognition.stop()
+  if (isListening.value || recognitionStarting.value || recognitionStopping.value) {
+    stopVoiceInput({ submitAfterStop: isListening.value })
     return
   }
 
@@ -271,12 +322,24 @@ async function ensureMicPermission() {
 }
 
 async function startVoiceInput() {
+  if (!recognition || isListening.value || recognitionStarting.value || recognitionStopping.value) return
+
   const allowed = await ensureMicPermission()
   if (!allowed || !recognition) return
 
   submitOnVoiceStop.value = false
   inputRef.value?.focus()
-  recognition.start()
+  recognitionStarting.value = true
+
+  try {
+    recognition.start()
+  } catch (err) {
+    recognitionStarting.value = false
+    recognitionStopping.value = false
+    if (err?.name !== 'InvalidStateError') {
+      showToast('Unable to start voice input. Please try again.', 'error')
+    }
+  }
 }
 
 function showToast(message, type = 'info', options = {}) {
@@ -313,8 +376,8 @@ function handleSubmit() {
   const text = messageText.value.trim()
   if (!text) return
 
-  if (isListening.value && recognition) {
-    recognition.stop()
+  if ((isListening.value || recognitionStarting.value || recognitionStopping.value) && recognition) {
+    stopVoiceInput({ submitAfterStop: false })
   }
 
   emit('submit', text)
@@ -330,11 +393,17 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
-  if (recognition && isListening.value) {
+  if (recognition && (isListening.value || recognitionStarting.value || recognitionStopping.value)) {
     submitOnVoiceStop.value = false
-    recognition.stop()
+    clearStopFallbackTimer()
+    try {
+      recognition.abort()
+    } catch (_err) {
+      // Recognition can already be closed when component unmounts.
+    }
   }
 
+  clearStopFallbackTimer()
   hideToast()
 })
 </script>

@@ -47,11 +47,10 @@
         </div>
 
         <div
-          v-if="shouldCollapse || showMuteButton"
+          v-if="shouldCollapse"
           class="flex flex-wrap items-center gap-2"
         >
           <button
-            v-if="shouldCollapse"
             type="button"
             class="inline-flex items-center rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-600 transition-colors duration-200 hover:border-brand-200 hover:text-brand-600"
             :title="isExpanded ? 'Collapse response' : 'Expand response'"
@@ -60,20 +59,40 @@
           >
             {{ isExpanded ? 'Collapse' : 'Expand' }}
           </button>
+        </div>
 
+        <div
+          v-if="showMuteButton"
+          class="flex flex-wrap items-center"
+        >
           <button
-            v-if="showMuteButton"
             type="button"
-            class="inline-flex h-8 w-8 items-center justify-center rounded-full border transition-colors duration-200"
+            class="inline-flex h-8 w-8 items-center justify-center rounded-full border transition-colors duration-200 disabled:cursor-wait disabled:opacity-75"
             :class="isMuted ? 'border-red-200 bg-red-50 text-red-600 hover:border-red-300 hover:bg-red-100' : 'border-green-200 bg-green-50 text-green-600 hover:border-green-300 hover:bg-green-100'"
-            :title="isMuted ? 'TTS muted' : 'TTS enabled'"
-            :aria-label="isMuted ? 'TTS muted' : 'TTS enabled'"
+            :title="muteActionPending ? 'Preparing voice playback...' : (isMuted ? 'Unmute voice playback' : 'Mute voice playback')"
+            :aria-label="muteActionPending ? 'Preparing voice playback' : (isMuted ? 'Unmute voice playback' : 'Mute voice playback')"
+            :disabled="muteActionPending"
             @click="toggleMute"
           >
             <svg
+              v-if="muteActionPending"
               viewBox="0 0 24 24"
-              width="16"
-              height="16"
+              width="14"
+              height="14"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              aria-hidden="true"
+              class="animate-spin"
+            >
+              <circle cx="12" cy="12" r="9" opacity="0.3" />
+              <path d="M21 12a9 9 0 0 1-9 9" />
+            </svg>
+            <svg
+              v-else
+              viewBox="0 0 24 24"
+              width="14"
+              height="14"
               fill="none"
               stroke="currentColor"
               stroke-width="2"
@@ -132,6 +151,7 @@ const isSpeaking = ref(false)
 const currentAudio = ref(null)
 const isExpanded = ref(false)
 const isMuted = ref(false)
+const muteActionPending = ref(false)
 
 const speechSupported = computed(() => (
   typeof window !== 'undefined' &&
@@ -167,24 +187,35 @@ function stopSpeech() {
   isSpeaking.value = false
 }
 
-function toggleMute() {
+async function toggleMute() {
+  if (muteActionPending.value) return
+
   isMuted.value = !isMuted.value
   if (isMuted.value) {
+    muteActionPending.value = false
     stopSpeech()
-  } else {
-    // Resume TTS with the current message text when unmuting
-    const speakable = normalizedMessageText.value
-    if (!props.autoReadEnabled || !props.ttsConfig?.enableVoiceChat) return
-    if (!speakable || isPlaceholderStatus()) return
+    return
+  }
 
+  // Resume TTS with the current message text when unmuting.
+  const speakable = normalizedMessageText.value
+  if (!props.autoReadEnabled || !props.ttsConfig?.enableVoiceChat) return
+  if (!speakable || isPlaceholderStatus()) return
+
+  muteActionPending.value = true
+  try {
     if (props.ttsConfig?.pollyAvailable && props.ttsConfig?.usePolly) {
-      speakTextWithPolly(speakable).catch((err) => {
+      try {
+        await speakTextWithPolly(speakable)
+        return
+      } catch (err) {
         console.warn('Polly TTS failed, falling back to browser speech:', err)
-        speakText(speakable)
-      })
-      return
+      }
     }
+
     speakText(speakable)
+  } finally {
+    muteActionPending.value = false
   }
 }
 
@@ -250,7 +281,7 @@ async function speakTextWithPolly(text) {
 }
 
 function handleGlobalStop() {
-  isSpeaking.value = false
+  stopSpeech()
 }
 
 function isPlaceholderStatus() {
@@ -278,7 +309,6 @@ const shouldCollapse = computed(() => {
 })
 
 const showMuteButton = computed(() => (
-  shouldCollapse.value &&
   props.message?.role !== 'user' &&
   !isLoadingStatus.value &&
   props.ttsConfig?.enableVoiceChat
@@ -319,6 +349,7 @@ watch(
   () => {
     isExpanded.value = false
     isMuted.value = false
+    muteActionPending.value = false
   },
 )
 
