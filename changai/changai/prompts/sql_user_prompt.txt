@@ -1,0 +1,3 @@
+USER QUESTION: {question}
+
+SCHEMA CONTEXT: {context}

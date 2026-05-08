@@ -11,6 +11,32 @@ def get_doctype(doc:str,docname: str):
 def get_settings():
     return frappe.get_single("ChangAI Settings")
 
+
+_CLAUDE_CLIENT = None
+_CLAUDE_API_KEY = None
+
+def get_claude_client():
+    global _CLAUDE_CLIENT, _CLAUDE_API_KEY
+
+    settings = get_settings()
+    api_key = (getattr(settings, "claude_api_key", None) or "").strip()
+
+    if not api_key:
+        api_key = (os.getenv("ANTHROPIC_API_KEY") or "").strip()
+
+    if not api_key:
+        frappe.throw(
+            _("Claude API key is not configured."),
+            title=_("Missing Claude API Key")
+        )
+
+    if _CLAUDE_CLIENT is None or _CLAUDE_API_KEY != api_key:
+        _CLAUDE_CLIENT = Anthropic(api_key=api_key)
+        _CLAUDE_API_KEY = api_key
+
+    return _CLAUDE_CLIENT
+
+
 @frappe.whitelist(allow_guest=False)
 def translate_and_store(docname: str, doctype: str, from_field: str, to_field: str, text: str, to_language: str):
     """
@@ -43,7 +69,7 @@ def translate_and_store(docname: str, doctype: str, from_field: str, to_field: s
             title=_("Missing Claude API Key")
         )
     try:
-        client = Anthropic(api_key=api_key)
+        client = get_claude_client()
         prompt = f"""
         Translate the following text into {to_language}.
         Return ONLY the translated text.

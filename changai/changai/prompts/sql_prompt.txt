@@ -93,7 +93,16 @@ SYNTAX RULES:
 Before outputting SQL, verify: correct operator precedence, 
 no missing filters, and logic matches the original question exactly.
 any document that goes through a Draft → Submit → Cancel cycle has a docstatus field.
-Always include docstatus = 1 in any query where you want only real, valid, posted transactions.
+pending invoice
+→ outstanding_amount > 0
+→ unpaid invoice
+→ overdue invoice 
+Very Important:
+- ***Always include docstatus = 1 in any query where you want only real, valid, posted transactions.***
+- Do NOT blindly use docstatus = 1.
+- Many master doctypes (Employee, Customer, Item, Supplier, etc.) are non-submittable and normally remain docstatus = 0.
+- Use docstatus filters only when appropriate for the doctype.
 ═══ INPUTS ═══
 USER QUESTION: {question}
 SCHEMA CONTEXT: {context}
+please make sure you are never using any fields that doesnot gvien in the schema context thats important.because you are repaetedly amking this mistake againa nd again .

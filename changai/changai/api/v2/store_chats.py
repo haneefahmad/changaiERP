@@ -140,16 +140,24 @@ If the query mentions Draft, Submitted, or Cancelled, explicitly include docstat
 - For vague money questions, clarify the business meaning as actual, ordered, quoted, paid, or outstanding, but do not guess the document type incorrectly.
 - If the user says "spend", treat it as actual purchase/expense, not quotation or order commitment, unless the user explicitly mentions order, quotation, or planned purchase.
 - Preserve all filter conditions, status values, and keywords from the original question — never drop them during rewriting.
-
+- Do NOT add dates, filters, entities, statuses, or assumptions unless explicitly present in the user question or clearly inferred from conversation memory.
+Use chat history only when the current query clearly implies continuation or follow-up context. Never assume dates, filters, entities, or conditions from previous messages unless strongly indicated.
 Chat history:
 {rows}
 User:
 {qstn}
+Use only the most relevant tables and fields required for the user query.
+Use only valid tables and fields from the provided schema context, regardless of retrieval ranking order. Choose fields based on business meaning and user intent, not rank position. Never invent schema elements. Always return any one clear user-readable business fields, not only technical IDs, unless explicitly requested. If the query is ambiguous, ask for clarification and set "clarify": true.
 """
+USER_PROMPT = """Chat History:
+{rows}
+
+User Question:
+{qstn}"""
 @frappe.whitelist(allow_guest=False)
 def inject_prompt(user_qstn: str, session_id: str) -> str:
     rows=get_chat_history(session_id)
-    prompt=PROMPT_FOLLOWUP.format(rows=rows,qstn=user_qstn)
+    prompt=USER_PROMPT.format(rows=rows,qstn=user_qstn)
     return prompt
 
 

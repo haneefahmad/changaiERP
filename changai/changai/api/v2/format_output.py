@@ -1,4 +1,3 @@
-import random
 from decimal import Decimal
 from typing import Any, Dict, List, Optional, Set
 import frappe
@@ -584,7 +583,7 @@ def format_sql_response(
         "source_fields": source_fields,
     }
 
-@frappe.whitelist(allow_guest=True)
+@frappe.whitelist(allow_guest=False)
 def local_format(sql, sample_rows):
     row_count = len(sample_rows)
     result = format_sql_response(sql, row_count, sample_rows)

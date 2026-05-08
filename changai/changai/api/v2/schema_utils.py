@@ -147,7 +147,6 @@ MASTER_DOCTYPES = [
 @frappe.whitelist(allow_guest=False)
 def check_file_updates(file_name=None):
     settings = frappe.get_single("ChangAI Settings")
-
     if file_name == "master_data.yaml":
         last_sync = settings.last_masterdata_sync
     elif file_name == "schema.yaml":

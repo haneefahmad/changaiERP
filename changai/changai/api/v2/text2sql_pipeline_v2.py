@@ -12,7 +12,9 @@ import os
 import time
 import base64
 import sqlglot
+from functools import lru_cache
 from sqlglot import exp
+from rapidfuzz import fuzz, process
 from langgraph.checkpoint.memory import MemorySaver
 from langchain_community.vectorstores import FAISS
 from langchain_huggingface import HuggingFaceEmbeddings
@@ -47,6 +49,8 @@ _GEMINI_CONFIG = None
 _FIELD_DOCS_CACHE = None
 _FIELD_EMBS_CACHE = None
 _TABLE_TO_IDX_CACHE = None
+_KEYWORDS_SET=None
+_KEYWORDS_LIST=None
 _ASSETS_DIR = Path(frappe.get_app_path("changai", "changai", "api", "v2", "assets")).resolve()
 _PROMPTS_DIR = Path(frappe.get_app_path("changai", "changai", "prompts")).resolve()
 CHANGAI_SETTINGS = "ChangAI Settings"
@@ -55,7 +59,85 @@ _ALLOWED_EXT = {".json", ".yaml",".j2", ".yml", ".txt", ".md"}
 import frappe
 from typing import Any, Dict, Optional
 
+SQL_REWRITE_PROMPT = """You are an ERP query rewriter and entity detector.
+Return ONLY valid JSON:
+{{"standalone_question":"...","contains_values":true/false}}
 
+TASK 1 — FOLLOW-UP
+- If the query depends on previous messages, rewrite it as a complete standalone question.
+- Otherwise keep it unchanged.
+
+TASK 2 — ENTITY DETECTION
+contains_values = TRUE: Any noun that refers to a specific named master record
+(item name, customer name, supplier name, warehouse name, employee name)
+If not sure, also set contains_values = TRUE, otherwise contains_values = FALSE.
+
+TASK 3 — ERP CONTEXTUAL REWRITE
+
+1. Normalize:
+- Fix typos, clear English
+- Do NOT change entity values
+
+2. Complete intent:
+- Never change the question's intent — only fix grammar and map ERP terms.
+
+3. ERP mapping:
+- Map generic terms to standard ERPNext concepts based on intent
+- Avoid vague words if clearer business terms exist
+- Do NOT invent documents or use report names.
+Examples:
+  stock       → Bin / Stock Ledger Entry
+  production  → Work Order
+  finance/profit → GL Entry
+
+4. Field hints (max 1–2):
+Use natural phrasing ("based on", "using"):
+  sales       → grand_total
+  qty         → qty
+  stock       → actual_qty
+  production  → produced_qty
+  finance     → debit / credit
+  status      → status
+
+5. Time fields:
+  Sales/Stock/Finance → posting_date
+  Work Order          → actual_start_date / actual_end_date
+  Timesheet           → start_date / end_date
+  Timesheet Detail    → from_time / to_time
+- NEVER use posting_date for Timesheet
+- NEVER use creation unless asked
+
+6. Relationships:
+- Include linked entities if required
+
+STYLE:
+- Natural business language
+- No SQL, no tab* names
+
+EXAMPLES:
+"total sales amount last month"
+→ What is the total sales amount from Sales Invoices last month based on grand_total and posting_date?
+
+"stock in warehouse a"
+→ What is the stock quantity in Warehouse A based on actual_qty from Bin?
+
+"who worked today"
+→ Which employees logged time today based on Timesheet start_date or Timesheet Detail from_time?
+
+STRICT RULES:
+- If the query mentions Draft, Submitted, or Cancelled, explicitly include docstatus in the rewritten question.
+- Do not add a specific document type unless clearly implied by the user query or required by standard ERPNext business meaning.
+- For vague money questions, clarify the business meaning as actual, ordered, quoted, paid, or outstanding — do not guess the document type incorrectly.
+- If the user says "spend", treat it as actual purchase/expense, not quotation or order commitment, unless the user explicitly mentions order, quotation, or planned purchase.
+- Preserve all filter conditions, status values, and keywords from the original question — never drop them during rewriting.
+- Do NOT add dates, filters, entities, statuses, or assumptions unless explicitly present in the user question or clearly inferred from conversation memory.
+- Use chat history only when the current query clearly implies continuation or follow-up context. Never assume dates, filters, entities, or conditions from previous messages unless strongly indicated.
+- Use only the most relevant tables and fields required for the user query.
+- Use only valid tables and fields from the provided schema context, regardless of retrieval ranking order.
+- Choose fields based on business meaning and user intent, not rank position.
+- Never invent schema elements.
+- Always return any one clear user-readable business field, not only technical IDs, unless explicitly requested.
+- If the query is ambiguous, ask for clarification and set "clarify": true."""
 def get_symspell():
     global sym_spell
 
@@ -181,11 +263,13 @@ BUSINESS_KEYWORDS = bk.get("business_keywords", bk)
 
 mapping_data = read_asset("metaschema_clean_v2.json", base="assets")
 CONVERSATION_TEMPLATE = read_asset("conversation_template_v2.j2", base="assets")
-
-SQL_PROMPT = read_asset("sql_prompt.txt", base="prompts")
+SQL_SYS_PROMPT = read_asset("sql_system_prompt.txt", base="prompts")
+SQL_PROMPT = read_asset("sql_user_prompt.txt", base="prompts")
 FORMAT_PROMPT = read_asset("user_friendly_prompt.txt", base="prompts")
 NON_ERP_PROMPT = read_asset("non_erp_prompt.txt", base="prompts")
 SUPPORT_PROMPT = read_asset("support.txt", base="prompts")
+SUPPORT_USER_PROMPT = read_asset("support_user_prompt.txt", base="prompts")
+SUPPORT_SYS_PROMPT = read_asset("support_sys_prompt.txt", base="prompts")
 
 FILTER_TABLES = read_asset("filter_tables.txt", base="prompts")
 filter_fields = read_asset("filter_fields.txt", base="prompts")
@@ -378,20 +462,29 @@ class ChangAIConfig:
             frappe.clear_document_cache(CHANGAI_SETTINGS)
             frappe.local._changai_config = get_settings()
         return frappe.local._changai_config
+_POLLY_CLIENT = None
 
+def get_polly_client(config):
+    global _POLLY_CLIENT
+
+    if _POLLY_CLIENT is None:
+        _POLLY_CLIENT = boto3.client(
+            "polly",
+            aws_access_key_id=(config.get("aws_access_key_id") or "").strip(),
+            aws_secret_access_key=(config.get("aws_secret_access_key") or "").strip(),
+            region_name=(config.get("aws_region") or "us-east-1"),
+        )
+    return _POLLY_CLIENT
 
 @frappe.whitelist(allow_guest=False)
 def synthesize_tts(text: str, voice_id: Optional[str] = None) -> Dict[str, Any]:
     config = ChangAIConfig.get()
-
     if not bool(config.get("enable_voice_chat")):
         return {"ok": False, "error": "Voice chat is disabled in settings.", "provider": "browser"}
-
     aws_access_key_id = (config.get("aws_access_key_id") or "").strip()
     aws_secret_access_key = (config.get("aws_secret_access_key") or "").strip()
     if not aws_access_key_id or not aws_secret_access_key:
         return {"ok": False, "error": "AWS Polly credentials are missing.", "provider": "browser"}
-
     cleaned_text = re.sub(r"<[^>]*>", " ", text or "")
     cleaned_text = re.sub(r"\s+", " ", cleaned_text).strip()
     if not cleaned_text:
@@ -401,12 +494,7 @@ def synthesize_tts(text: str, voice_id: Optional[str] = None) -> Dict[str, Any]:
         cleaned_text = cleaned_text[:2500]
 
     try:
-        polly_client = boto3.client(
-            "polly",
-            aws_access_key_id=aws_access_key_id,
-            aws_secret_access_key=aws_secret_access_key,
-            region_name=(config.get("aws_region") or "us-east-1"),
-        )
+        polly_client = get_polly_client(config)
         voice = (voice_id or config.get("polly_voice_id") or "Joanna").strip() or "Joanna"
         response = polly_client.synthesize_speech(
             Text=cleaned_text,
@@ -530,13 +618,13 @@ def extract_tables_from_sql(sql: str) -> List[str]:
     return tables
 
 
-def call_model(prompt: str, task: str = "llm") -> Any:
+def call_model(prompt: str, task: str = "llm",sys_prompt: str = "") -> Any:
     config = ChangAIConfig.get()
     if config["REMOTE"] and config["llm"] == "QWEN3":
         return remote_llm_request_deploy_test(prompt=prompt, task=task)
     else:
         if config["llm"] == "Gemini":
-            return call_gemini(prompt)
+            return call_gemini(prompt,sys_prompt)
 
 
 def _post_json(url: str, headers: Dict[str, str], payload: Dict[str, Any], timeout: int = 120):
@@ -705,13 +793,13 @@ def gemini_client():
         _GEMINI_CLIENT = _build_gemini_client(config)
     return _GEMINI_CLIENT
 
-def call_gemini(prompt: str) -> Union[str, Dict[str, Any]]:
+def call_gemini(prompt: str,sys_prompt: str) -> Union[str, Dict[str, Any]]:
     try:
         # frappe.clear_document_cache(CHANGAI_SETTINGS)
         client = gemini_client()
 
         gemini_config = types.GenerateContentConfig(
-            system_instruction="You are an ERPNext assistant.Follow the task instructions exactly.",
+            system_instruction=sys_prompt,
         )
         response = client.models.generate_content(
             model=MODEL_ID,
@@ -831,8 +919,13 @@ class SQLState(TypedDict, total=False):
     selected_fields: str
 
 
-def is_erp_query(q: str, keywords: list[str]) -> bool:
-    return any(kw in q for kw in keywords)
+def is_erp_query(q: str) -> tuple[bool, str]:
+    _init_keywords()
+    for word in q.lower().split():
+        is_erp = _word_is_erp(word)
+        if is_erp:
+            return True
+    return False
 
 def correct_spelling(text: str) -> str:
     sym = get_symspell()
@@ -850,8 +943,7 @@ def guardrail_router(state: SQLState) -> SQLState:
     raw_q = state.get("formatted_q") or state.get("question") or ""
     q = str(raw_q).lower().strip()
     q_corrected = correct_spelling(q)
-    is_erp = is_erp_query(q_corrected, BUSINESS_KEYWORDS)
-
+    is_erp= is_erp_query(q_corrected)
     query_type = "ERP" if is_erp else "NON_ERP"
 
     state["query_type"] = query_type
@@ -905,16 +997,17 @@ def _parse_rewrite_response(raw: Any, user_qstn: str) -> Tuple[str, bool]:
 
     return standalone or user_qstn.strip(), contains_values
 
-
+SQL_REWRITE_SYS_PROMPT = read_asset("sql_rewrite_sys_prompt.txt", base="prompts")
+SQL_REWRITE_USER_PROMPT = read_asset("sql_rewrite_user_prompt.txt", base="prompts")
 def rewrite_question(state: SQLState) -> SQLState:
     request_id = state.get("request_id")
     user_qstn = state.get("question") or ""
     session_id = state.get("session_id")
-
+    sys_prompt = SQL_REWRITE_SYS_PROMPT
     prompt = inject_prompt(user_qstn, session_id)
 
     try:
-        raw = call_model(prompt, "llm")
+        raw = call_model(prompt, "llm",sys_prompt)
         standalone, contains_values = _parse_rewrite_response(raw, user_qstn)
 
         publish_pipeline_update(
@@ -1375,7 +1468,7 @@ def generate_sql(state:SQLState) -> SQLState:
     else:
         prompt=fill_sql_prompt(formatted_q,state["context"])
     try:
-        response=call_model(prompt)
+        response=call_model(prompt,"llm",SQL_SYS_PROMPT)
         if not response:
             return {**state, "error": "Empty response from LLM", "sql_prompt": prompt}
         if isinstance(response, str):
@@ -1481,7 +1574,7 @@ def get_master_vs():
 
 @frappe.whitelist()
 def local_entity_embedder(q: str) -> List[Dict[str, Any]]:
-    hits = get_master_vs().similarity_search(q, k=4)
+    hits = get_master_vs().similarity_search(q, k=10)
     out, seen = [], set()
     for h in hits:
         entity_type = h.metadata.get("entity_type")
@@ -1534,10 +1627,10 @@ def repair_sqlquery(state: SQLState) -> SQLState:
     sql_prompt = state.get("sql_prompt")
     if not sql_prompt:
         return {**state, "tries": tries, "error": "No SQL prompt to repair from"}
-    patched_prompt = sql_prompt + "\n\n#VALIDATION HINTS\n" + "\n".join(f"-{h}" for h in hints)
+    patched_prompt =sql_prompt + "\n\n#VALIDATION HINTS\n" + "\n".join(f"-{h}" for h in hints)
 
     try:
-        response = call_model(patched_prompt,"llm")
+        response = call_model(patched_prompt,"llm",SQL_SYS_PROMPT)
         if isinstance(response, str):
             try:
                 response = json.loads(response)
@@ -1846,8 +1939,8 @@ def execute_query(sql: str, doctypes: List[str]) -> Any:
 def support_bot(message: str) -> Dict[str, Any]:
     user_email = frappe.session.user
     full_name = frappe.get_value("User", frappe.session.user, "full_name")
-    prompt = SUPPORT_PROMPT.format(user_message=message)
-    raw = call_gemini(prompt)
+    prompt = SUPPORT_USER_PROMPT.format(user_message=message)
+    raw = call_gemini(prompt, SUPPORT_SYS_PROMPT)
     output = json.loads(raw)
     task_flag = (output.get("task_flag") or "UNKNOWN").strip()
     ticket_id = output.get("ticket_id")
@@ -1928,24 +2021,24 @@ def format_data(qstn: str, sql_data: Any) -> Dict[str, str]:
     else:
         db_result_json = str(sql_data) if sql_data is not None else "{}"
 
-    prompt = f"""
+    sys_prompt = """
 INSTRUCTIONS:
 - Convert raw database results into a short, friendly, human-readable answer.
 - You may use BOTH: (1) the user question and (2) the DB result JSON to form the answer.
 - Use ONLY values present in the JSON. NEVER invent numbers or fields.
 - Keep the answer brief (1–6 lines).
 - If the question asks for last/top/highest/total, interpret based strictly on the JSON rows.
-
-QUESTION:
-{qstn}
-
-DATABASE_RESULT_JSON:
-{db_result_json}
-
 OUTPUT:
 Write a clear final answer for the user based strictly on the JSON above.
 """
-    output = call_model(prompt=prompt)
+    user_prompt=f"""
+            QUESTION:
+            {qstn}
+
+            DATABASE_RESULT_JSON:
+            {db_result_json}
+    """
+    output = call_model(user_prompt,"llm",sys_prompt)
     answer = str(output)
     return {"answer": answer}
 
@@ -2446,16 +2539,16 @@ def run_text2sql_pipeline(user_question: str, chat_id: str, request_id: str) -> 
 
 
 
-@frappe.whitelist(allow_guest=False)
-def test(user_qstn, session_id):
-    prompt = inject_prompt(user_qstn, session_id)
+# @frappe.whitelist(allow_guest=False)
+# def test(user_qstn, session_id):
+#     prompt = inject_prompt(user_qstn, session_id)
     
-    try:
-        raw = call_model(prompt, "llm")
-        standalone, contains_values = _parse_rewrite_response(raw, user_qstn)
-        return standalone, contains_values
-    except Exception as e:
-        print(f"Error during model call: {e}")
+#     try:
+#         raw = call_model(prompt, "llm")
+#         standalone, contains_values = _parse_rewrite_response(raw, user_qstn)
+#         return standalone, contains_values
+#     except Exception as e:
+#         print(f"Error during model call: {e}")
 
 
 def load_on_startup():
@@ -2481,6 +2574,50 @@ def load_on_startup():
         load_field_matrix()
         gemini_client()
         get_master_vs()
+        _init_keywords()
         frappe.logger().info("ChangAI: All components loaded into memory")
+        config = ChangAIConfig.get()
+        get_polly_client(config)
     except Exception as e:
         frappe.logger().error(f"ChangAI startup load failed: {e}")
+
+
+def _init_keywords():
+    global _KEYWORDS_SET, _KEYWORDS_LIST
+    if not _KEYWORDS_SET:
+        _KEYWORDS_SET = set(kw.lower() for kw in BUSINESS_KEYWORDS)
+        _KEYWORDS_LIST = list(_KEYWORDS_SET)
+        
+        # ✅ pre-warm cache — run every keyword through _word_is_erp at startup
+        for kw in _KEYWORDS_LIST:
+            _word_is_erp(kw)  # result gets cached — first real request is instant
+
+
+@lru_cache(maxsize=None)
+def _word_is_erp(word: str) -> tuple[bool, str]:
+    """Returns (is_erp, matched_keyword)"""
+    if len(word) <= 3:
+        return False
+
+    # 1. exact
+    if word in _KEYWORDS_SET:
+        return True
+
+    # 2. substring
+    for kw in _KEYWORDS_SET:
+        if word in kw or kw in word:
+            return True
+
+    # 3. fuzzy
+    if len(word) >= 4:
+        match = process.extractOne(
+            word,
+            _KEYWORDS_LIST,
+            scorer=fuzz.ratio,
+            score_cutoff=85
+        )
+        if match:
+            return True
+
+    return False, ""
+

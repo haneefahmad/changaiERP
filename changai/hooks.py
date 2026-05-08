@@ -181,8 +181,16 @@ doc_events = {
 # 		"on_trash": "method"
 # 	}
 }
-before_request = ["changai.changai.api.v2.text2sql_pipeline_v2.load_on_startup",
-                  "changai.changai.api.v2.schema_utils.reload_mapping_schema_cache"]
+on_boot = [
+    "changai.changai.api.v2.text2sql_pipeline_v2.load_on_startup",
+    "changai.changai.api.v2.schema_utils.reload_mapping_schema_cache"
+]
+
+# also runs after bench migrate
+after_migrate = [
+    "changai.changai.api.v2.text2sql_pipeline_v2.load_on_startup",
+    "changai.changai.api.v2.schema_utils.reload_mapping_schema_cache"
+]
 # Scheduled Tasks
 # ---------------
 
