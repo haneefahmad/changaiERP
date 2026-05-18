@@ -161,7 +161,7 @@ def get_symspell():
 
     frappe.logger().error(f"SymSpell loading NOW in PID: {os.getpid()}") 
 
-    sym_spell = SymSpell(max_dictionary_edit_distance=2, prefix_length=7)
+    sym_spell = SymSpell(max_dictionary_edit_distance=4, prefix_length=7)
 
     dictionary_path = frappe.get_app_path(
         "changai",
@@ -379,9 +379,32 @@ def load_field_matrix():
 
     return docs, embs, table_to_idx
 
+@frappe.whitelist(allow_guest=True)
+def _get_cached_embedding_test(q: str) -> tuple:
+    t0=time.time()
+    # publish_pipeline_update(
+    #         request_id,
+    #         "embedding_start",
+    #         "embedding started"
+    # )
+    emb = get_embedding_engine()
+    emb_load_time = time.time() - t0
+
+    # publish_pipeline_update(
+    #         request_id,
+    #         "embedding_end",
+    #         "get_embedding_engine ended"
+    # )
+    t1 = time.time()
+    vec = emb.embed_query(q)
+    embed_query_time = time.time() - t1
+    return emb_load_time,embed_query_time # tuple for hashability
+
 
 def get_embedding_engine():
     global _EMBEDDER_INSTANCE
+    if _EMBEDDER_INSTANCE is not None:
+        return _EMBEDDER_INSTANCE
     
     model_path = _get_model_path()  # check path first, always
     
@@ -434,8 +457,9 @@ def _build_frontend_settings_config() -> Dict[str, Any]:
         "gemini_json_content": settings.gemini_json_content,
         "enable_voice_chat": bool(settings.enable_voice_chat),
         "aws_region": aws_region,
-        "polly_voice_id": "Joanna",
+        "polly_voice_id": "Zayd",
         "polly_enabled": bool(settings.enable_voice_chat and aws_access_key_id and aws_secret_access_key),
+        "enable_changai": bool(settings.enable_changai)
     }
 
 
@@ -489,6 +513,32 @@ def get_polly_client(config):
         )
     return _POLLY_CLIENT
 
+def build_ssml(text: str) -> str:
+    parts = []
+    current = []
+    current_lang = None
+
+    for token in text.split():
+        lang = "ar-AE" if re.search(r'[\u0600-\u06FF]', token) else "en-US"
+
+        if current_lang is None:
+            current_lang = lang
+
+        if lang != current_lang:
+            parts.append(
+                f'<lang xml:lang="{current_lang}">{" ".join(current)}</lang>'
+            )
+            current = [token]
+            current_lang = lang
+        else:
+            current.append(token)
+
+    if current:
+        parts.append(
+            f'<lang xml:lang="{current_lang}">{" ".join(current)}</lang>'
+        )
+
+    return "<speak>" + " ".join(parts) + "</speak>"
 @frappe.whitelist(allow_guest=False)
 def synthesize_tts(text: str, voice_id: Optional[str] = None) -> Dict[str, Any]:
     config = ChangAIConfig.get()
@@ -508,14 +558,15 @@ def synthesize_tts(text: str, voice_id: Optional[str] = None) -> Dict[str, Any]:
 
     try:
         polly_client = get_polly_client(config)
-        voice = (voice_id or config.get("polly_voice_id") or "Joanna").strip() or "Joanna"
+        voice = (voice_id or config.get("polly_voice_id") or "Zayd").strip() or "Zayd"
+        ssml_text = build_ssml(cleaned_text)
         response = polly_client.synthesize_speech(
-            Text=cleaned_text,
-            OutputFormat="mp3",
-            VoiceId=voice,
-            Engine="neural",
-            TextType="text",
-        )
+    Text=ssml_text,
+    OutputFormat="mp3",
+    VoiceId="Zayd",
+    Engine="neural",
+    TextType="ssml",
+)
         stream = response.get("AudioStream")
         if stream is None:
             return {"ok": False, "error": "Polly did not return audio stream.", "provider": "browser"}
@@ -908,6 +959,7 @@ def _safe_strip(v):
 # Shared State
 class SQLState(TypedDict, total=False):
     request_id: str
+    sendNonErptoAI:bool
     session_id: str
     question: str
     contains_values: bool
@@ -932,14 +984,6 @@ class SQLState(TypedDict, total=False):
     selected_fields: str
 
 
-def is_erp_query(q: str) -> tuple[bool, str]:
-    _init_keywords()
-    for word in q.lower().split():
-        is_erp = _word_is_erp(word)
-        if is_erp:
-            return True
-    return False
-
 def correct_spelling(text: str) -> str:
     sym = get_symspell()
     suggestions = sym.lookup_compound(text, max_edit_distance=2)
@@ -950,24 +994,121 @@ def fill_sql_prompt(question: str, context: str) -> str:
     return SQL_PROMPT.format(question=question, context=context)
 
 
+@lru_cache(maxsize=None)
+def _word_is_erp(word: str) -> bool:
+    if len(word) <= 3:
+        return False
+    if word in _KEYWORDS_SET:
+        return True
+    for kw in _KEYWORDS_SET:
+        if word in kw or kw in word:
+            return True
+    if len(word) >= 4:
+        match = process.extractOne(
+            word, _KEYWORDS_LIST, scorer=fuzz.ratio, score_cutoff=85
+        )
+        if match:
+            return True
+    return False
+
+# def is_erp_query(q: str) -> bool:
+#     _init_keywords()
+#     for word in q.lower().split():
+#         if _word_is_erp(word):
+#             return True
+#     return False
+
+STOP_WORDS = {
+    # English greetings / casual
+    "hi", "hello", "hey", "thanks", "thank", "please", "pls",
+    "ok", "okay", "yes", "no", "bye", "goodbye","have","has","had","do","does","did",
+
+    # English question/helper words
+    "what", "which", "who", "whom", "whose", "where", "when", "why", "how",
+    "can", "could", "would", "should", "do", "does", "did", "is", "are",
+    "was", "were", "be", "been", "being",
+
+    # English filler/common words
+    "the", "a", "an", "to", "for", "from", "of", "in", "on", "at", "by",
+    "with", "without", "and", "or", "but", "if", "then", "than", "as",
+    "this", "that", "these", "those", "it", "its", "there", "here",
+
+    # English user command words
+    "show", "list", "give", "get", "find", "display", "tell", "me",
+    "need", "want", "make", "create", "check", "see", "view",
+
+    # English time/common filters
+    "today", "yesterday", "tomorrow", "now", "current", "latest",
+    "last", "next", "this", "week", "month", "year", "daily", "weekly",
+    "monthly", "yearly",
+
+    # Arabic greetings / casual
+    "مرحبا", "مرحبًا", "اهلا", "أهلا", "أهلًا", "السلام", "شكرا", "شكرًا",
+    "نعم", "لا", "طيب", "تمام", "مع السلامة",
+
+    # Arabic question/helper words
+    "ما", "ماذا", "من", "متى", "أين", "اين", "كيف", "لماذا", "هل", "كم",
+    "أي", "اي", "الذي", "التي", "الذين",
+
+    # Arabic filler/common words
+    "في", "من", "إلى", "الى", "على", "عن", "مع", "بدون", "و", "أو", "او",
+    "لكن", "إذا", "اذا", "ثم", "هذا", "هذه", "هؤلاء", "ذلك", "تلك", "هنا",
+
+    # Arabic user command words
+    "اعرض", "عرض", "اظهر", "أظهر", "هات", "اعطني", "أعطني", "اريد", "أريد",
+    "احتاج", "ابحث", "تحقق", "شوف",
+
+    # Arabic time/common filters
+    "اليوم", "أمس", "امس", "غدا", "غدًا", "الآن", "الان", "الحالي",
+    "الأخير", "الاخير", "هذا", "هذه", "الأسبوع", "الاسبوع", "الشهر",
+    "السنة", "العام", "يومي", "أسبوعي", "شهري", "سنوي",
+}
+
+
+def tokenize_mixed(text):
+    return re.findall(r'[\u0600-\u06FF]+|[a-zA-Z0-9]+', text.lower())
+
+
+@frappe.whitelist(allow_guest=True)
+def is_erp_query(q: str):
+    words = tokenize_mixed(q)
+
+    for word in words:
+
+        if len(word) <= 2:
+            continue
+
+        if word in STOP_WORDS:
+            continue
+
+        match = process.extractOne(
+            word,
+            BUSINESS_KEYWORDS,
+            scorer=fuzz.ratio,
+            score_cutoff=80
+        )
+
+        if match:
+            return True
+
+    return False
+
+
 def guardrail_router(state: SQLState) -> SQLState:
     request_id = state.get("request_id")
-
     raw_q = state.get("formatted_q") or state.get("question") or ""
-    q = str(raw_q).lower().strip()
-    q_corrected = correct_spelling(q)
-    is_erp= is_erp_query(q_corrected)
+    # q = str(raw_q).lower().strip()
+    # q_corrected = correct_spelling(q)
+    is_erp= is_erp_query(raw_q)
     query_type = "ERP" if is_erp else "NON_ERP"
 
     state["query_type"] = query_type
     publish_pipeline_update(
             request_id,
-            "question_rewrite_done",
+            "question_classify_done",
             "Query classified as " + query_type,
             data={"query_type": query_type}
         )
-
-
     return state
 
 def send_non_erp_request(state: SQLState) -> SQLState:
@@ -1098,39 +1239,104 @@ def get_table_vs():
 #             out.append(t)
 #     return out
 
-@frappe.whitelist(allow_guest=False)
 def check_memory_status() -> dict:
     return {
-        "pid": os.getpid(),  # which worker answered
+        "pid": os.getpid(),
+        "module": __name__,
+        "file": __file__,
         "globals": {
-            "embedding_model": _EMBEDDER_INSTANCE is not None,
-            "table_vs": _VS_TABLE is not None,
-            "full_fields_vs": _FULL_FIELDS_VS is not None,
-            "field_docs": _FIELD_DOCS_CACHE is not None,
-            "field_embs": _FIELD_EMBS_CACHE is not None,
-            "table_to_idx": _TABLE_TO_IDX_CACHE is not None,
-            "master_vs": _VS_MASTER is not None,
-            "gemini_client": _GEMINI_CLIENT is not None,
-            "symspell": sym_spell is not None,
-            "keywords": _KEYWORDS_SET is not None,
+            "embedding_model": {
+                "loaded": _EMBEDDER_INSTANCE is not None,
+                "id": id(_EMBEDDER_INSTANCE),
+            },
+            "table_vs": {
+                "loaded": _VS_TABLE is not None,
+                "id": id(_VS_TABLE),
+            },
+            "full_fields_vs": {
+                "loaded": _FULL_FIELDS_VS is not None,
+                "id": id(_FULL_FIELDS_VS),
+            },
+            "field_docs": {
+                "loaded": _FIELD_DOCS_CACHE is not None,
+                "id": id(_FIELD_DOCS_CACHE),
+            },
+            "field_embs": {
+                "loaded": _FIELD_EMBS_CACHE is not None,
+                "id": id(_FIELD_EMBS_CACHE),
+            },
+            "table_to_idx": {
+                "loaded": _TABLE_TO_IDX_CACHE is not None,
+                "id": id(_TABLE_TO_IDX_CACHE),
+            },
+            "master_vs": {
+                "loaded": _VS_MASTER is not None,
+                "id": id(_VS_MASTER),
+            },
+            "gemini_client": {
+                "loaded": _GEMINI_CLIENT is not None,
+                "id": id(_GEMINI_CLIENT),
+            },
+            "symspell": {
+                "loaded": sym_spell is not None,
+                "id": id(sym_spell),
+            },
+            "keywords": {
+                "loaded": _KEYWORDS_SET is not None,
+                "id": id(_KEYWORDS_SET),
+            },
         }
     }
 
-
 @lru_cache(maxsize=512)
-def _get_cached_embedding(q: str) -> tuple:
+def _get_cached_embedding(q: str, request_id: str) -> tuple:
+    publish_pipeline_update(
+            request_id,
+            "embedding_start",
+            "embedding started"
+    )
     emb = get_embedding_engine()
+    publish_pipeline_update(
+            request_id,
+            "embedding_end",
+            "get_embedding_engine ended"
+    )
     vec = emb.embed_query(q)
+    publish_pipeline_update(
+            request_id,
+            "embedding_query_done",
+            "embedding query done"
+    )
     return tuple(vec)  # tuple for hashability
 
 
-def call_fvs_table_search(q: str) -> List[str]:
+def call_fvs_table_search(q: str, request_id: str) -> List[str]:
     # get cached embedding
-    q_vec = np.array(_get_cached_embedding(q), dtype="float32")
+    publish_pipeline_update(
+            request_id,
+            "Inside the Table Search Function",
+            _("Inside the Table Search Function")
+        )
+    q_vec = np.array(_get_cached_embedding(q,request_id), dtype="float32")
     
     # use FAISS index directly instead of similarity_search
+    publish_pipeline_update(
+            request_id,
+            "q_vec_ready",
+            _("q_vec_ready")
+        )
     vs = get_table_vs()
+    publish_pipeline_update(
+            request_id,
+            "vs_ready",
+            _("vs_ready")
+        )
     scores, indices = vs.index.search(q_vec.reshape(1, -1), k=20)
+    publish_pipeline_update(
+            request_id,
+            "index_search_done",
+            _("index_search_done")
+        )
     
     out, seen = [], set()
     for idx in indices[0]:
@@ -1169,7 +1375,7 @@ def build_hnsw_index(embeddings):
 
 def call_retrieve_multi_line(user_question: str, request_id: str) -> Dict[str, Any]:
     try:
-        top_tables = call_fvs_table_search(user_question)
+        top_tables = call_fvs_table_search(user_question, request_id)
         publish_pipeline_update(
             request_id,
             "table_retrieval_done",
@@ -1178,7 +1384,8 @@ def call_retrieve_multi_line(user_question: str, request_id: str) -> Dict[str, A
         fields_candidates= call_fvs_field_search_global_k(
             user_question,
             selected_tables=top_tables,
-            k_total=40
+            k_total=40,
+            request_id=request_id
         )
         publish_pipeline_update(
             request_id,
@@ -1200,7 +1407,8 @@ def call_retrieve_multi_line(user_question: str, request_id: str) -> Dict[str, A
 def call_fvs_field_search_global_k(
     user_question: str,
     selected_tables: List[str],
-    k_total: int = 20,
+    k_total: int = 40,
+    request_id: Optional[str] = None
 ) -> str:
 
     if not user_question or not selected_tables:
@@ -1208,10 +1416,10 @@ def call_fvs_field_search_global_k(
 
     docs, embs, table_to_idx = load_field_matrix()
 
-    emb = get_embedding_engine()
+    # emb = get_embedding_engine()
 
     q_vec = np.array(
-        _get_cached_embedding(user_question),
+        _get_cached_embedding(user_question, request_id),
         dtype="float32"
     )
 
@@ -1382,24 +1590,11 @@ def remote_entity_embedder(q: str) -> Union[list, str]:
     return response
 
 
-# @frappe.whitelist(allow_guest=False)
-# def get_master_vs():
-#     global _VS_MASTER
-#     if _VS_MASTER is None:
-#         emb = get_embedding_engine()
-#         if emb is None:
-#             frappe.throw(_(EMBEDDING_ENGINE_NONE_MESSG))
-#         app_path = frappe.get_app_path("changai")
-#         master_vs_path = os.path.join(app_path, "changai", "api", "v2", "fvs_stores", "erpnext", "masterdata_fvs")
-#         if not os.path.exists(master_vs_path):
-#             frappe.throw(_("FAISS MASTER store not found at {0}").format(master_vs_path))
-#         _VS_MASTER = FAISS.load_local(master_vs_path, emb, allow_dangerous_deserialization=True)
-#     return _VS_MASTER
-
 settingsUrl = frappe.utils.get_url(
     "/app/changai-settings/ChangAI%20Settings"
 )
-@frappe.whitelist(allow_guest=False)
+
+
 def get_master_vs():
     global _VS_MASTER
     try:
@@ -1432,12 +1627,9 @@ def get_master_vs():
             )
     except Exception as e:
         frappe.log_error(f"Error loading master vector store: {e}", "ChangAI Master VS Load Error")
-        _VS_MASTER = None  # Ensure it's 
 
     return _VS_MASTER
 
-
-@frappe.whitelist()
 def local_entity_embedder(q: str) -> List[Dict[str, Any]]:
     hits = get_master_vs().similarity_search(q, k=15)
     out, seen = [], set()
@@ -1450,7 +1642,6 @@ def local_entity_embedder(q: str) -> List[Dict[str, Any]]:
             out.append({"entity_type": entity_type, "entity_id": entity_id})
     return out
 
-@frappe.whitelist(allow_guest=False)
 def call_entity_retriever(qstn: str) -> Dict[str, Any]:
     config = ChangAIConfig.get()
     if config["REMOTE"] and config["llm"] == "QWEN3":
@@ -1741,7 +1932,23 @@ def validate_sql_against_mapping(
 
     return result
 
+def routeNonErpToAI(state: SQLState):
+    question= state["question"]
+    sys_prompt = """You are ChangAI, an intelligent assistant powered by ERPGulf. 
+The user has asked a general question that is not related to ERP. 
+Answer the question clearly and helpfully.
+Always mention that you are ChangAI by ERPGulf when introducing yourself."""
+    if frappe.utils.cint(state.get("sendNonErptoAI", 0)) == 1 or state.get("sendNonErptoAI") == "true":
+        try:
+            res = call_gemini(question,sys_prompt)
+            return {**state, "non_erp_res": res}
+        except Exceptiona as e:
+            return {**state, "non_erp_res": "Model Calling Failed .Please try Again","error":str(e)}
 
+
+    else:
+        res= send_non_erp_request(state)
+        return res
 
 
 # Building the Workflow Graph
@@ -1755,10 +1962,11 @@ workflow.add_node("generate_sql",generate_sql)
 workflow.add_node("validate_sql",validate_sql)
 workflow.add_node("repair_sql",repair_sqlquery)
 workflow.add_node("send_non_erp_request",send_non_erp_request)
+workflow.add_node("routeNonErpToAI",routeNonErpToAI)
 workflow.set_entry_point("guardrail_router")
-workflow.add_conditional_edges("guardrail_router",route_guardrail,{"ERP":"rewrite_question","NON_ERP":"send_non_erp_request"})
+workflow.add_conditional_edges("guardrail_router",route_guardrail,{"ERP":"rewrite_question","NON_ERP":"routeNonErpToAI"})
 # workflow.add_edge("guardrail_router", "rewrite_question")
-workflow.add_edge("send_non_erp_request", END)
+workflow.add_edge("routeNonErpToAI", END)
 workflow.add_edge("rewrite_question", "retrieve")
 workflow.add_edge("retrieve","detect_entities")
 workflow.add_conditional_edges("detect_entities", route_after_entities, {"CONTEXT":"build_context","DIRECT":"generate_sql"})
@@ -1852,10 +2060,11 @@ def save_logs(
         if isinstance(v, (dict, list)):
             return json.dumps(v, default=str, ensure_ascii=False)
         return v
-
+    MAX_LOG_LEN = 140
     doc = frappe.new_doc("ChangAI Logs")
     doc.user_question = user_question
-    doc.rewritten_question = formatted_q
+    safe_question=(formatted_q[:137] + "..." if len(formatted_q) > MAX_LOG_LEN else formatted_q)
+    doc.rewritten_question = safe_question
     doc.schema_retrieved = to_json_if_needed(context)
     doc.sql_generated = to_json_if_needed(sql)
     doc.validation = to_json_if_needed(val)
@@ -1887,14 +2096,35 @@ def format_data(qstn: str, sql_data: Any) -> Dict[str, str]:
         db_result_json = str(sql_data) if sql_data is not None else "{}"
 
     sys_prompt = """
-INSTRUCTIONS:
-- Convert raw database results into a short, friendly, human-readable answer.
-- You may use BOTH: (1) the user question and (2) the DB result JSON to form the answer.
+You are ChangAI, a warm and intelligent business assistant.
+Your job is to turn raw database results into clear, friendly, human-readable answers.
+
+CONTENT RULES:
+- Use BOTH the user question and the DB result JSON to form the answer.
 - Use ONLY values present in the JSON. NEVER invent numbers or fields.
-- Keep the answer brief (1–6 lines).
-- If the question asks for last/top/highest/total, interpret based strictly on the JSON rows.
+- If result is empty, respond warmly and suggest refining the search.
+- Do NOT mention SQL, tables, fields, JSON, reasoning, or steps.
+
+TONE & STYLE:
+- Warm, conversational, and helpful — like a knowledgeable friend, not a report.
+- If the question is in Arabic, reply in natural Arabic — not translated English.
+- Never respond with a cold, empty, or robotic answer.
+
+FORMATTING:
+- Start with ONE relevant emoji matching the topic (📦💰🧾👥📊📅🔍💤📉)
+- For 3+ items, use a bullet list: • Item — value
+- If list exceeds shown items, state exactly how many remain: e.g. + 3 أخرى
+- Keep answers brief (1–6 lines). Lead with the direct answer, then light context.
+
+CLOSING:
+- End with ONE short, relevant follow-up question to keep the conversation going.
+- Make it feel natural, not robotic. e.g. "هل تريد تفاصيل أكثر عن أحد هؤلاء؟"
+Never list names or items in a comma-separated line. Ever.
 OUTPUT:
-Write a clear final answer for the user based strictly on the JSON above.
+- Markdown ALLOWED: **bold**, • bullets, emojis
+- No JSON. No code blocks. No labels. No explanations.
+- Output ONLY the final user-facing answer. Nothing else.
+- if the user question is in english reply in arbic only very improtant.
 """
     user_prompt=f"""
             QUESTION:
@@ -2236,11 +2466,12 @@ def debug_entity_retriever(q: str):
     }
 
 
-def _invoke_pipeline(user_question: str, chat_id: str, request_id: str):
+def _invoke_pipeline(user_question: str, chat_id: str, request_id: str,sendNonErptoAI:bool):
     initial_state: SQLState = {
         "question": user_question or "",
         "session_id": chat_id,
         "request_id": request_id,
+        "sendNonErptoAI":sendNonErptoAI
     }
     config = {
         "configurable": {"thread_id": chat_id},
@@ -2286,7 +2517,7 @@ def _handle_non_erp(final: SQLState, user_question: str, chat_id: str) -> Dict:
 def _get_sql_error_message(err: Any, val: Dict) -> str:
     if err:
         frappe.log_error(err, "ChangAI SQL Pipeline Error")
-        return "⚠️ The model encountered an error generating your query. Please try again."
+        return "⚠️ The model encountered an error generating your query. Please try the same Question again."
 
     error_text = (val.get("error") or "").strip()
 
@@ -2308,7 +2539,7 @@ def _get_sql_error_message(err: Any, val: Dict) -> str:
     return f"⚠️ The model generated an invalid query. {error_text}"
 
 
-def _handle_sql_result(sql_prompt:str,final: SQLState, sql: str, orm: str, formatted_q: str, fields: str,
+def _handle_sql_result(memory_status: Dict,sql_prompt:str,final: SQLState, sql: str, orm: str, formatted_q: str, fields: str,
                        selected_tables: List, val: Dict, entity_debug: Dict,
                        user_question: str, chat_id: str) -> Dict:
     try:
@@ -2342,6 +2573,8 @@ def _handle_sql_result(sql_prompt:str,final: SQLState, sql: str, orm: str, forma
             return {"error": str(e)}
 
     return {
+        "context":context,
+        "Memory Status":memory_status,
         "Question": user_question,
         "Formated Question":formatted_q,
         "SQL": sql,
@@ -2358,8 +2591,9 @@ def _handle_sql_result(sql_prompt:str,final: SQLState, sql: str, orm: str, forma
 
 
 @frappe.whitelist(allow_guest=False)
-def run_text2sql_pipeline(user_question: str, chat_id: str, request_id: str) -> Dict:
-    final, err_response = _invoke_pipeline(user_question, chat_id, request_id)
+def run_text2sql_pipeline(user_question: str, chat_id: str, request_id: str,sendNonErptoAI=0) -> Dict:
+    memory_status = check_memory_status()
+    final, err_response = _invoke_pipeline(user_question, chat_id, request_id,sendNonErptoAI)
     if err_response:
         return err_response
     entity_debug = {
@@ -2386,6 +2620,7 @@ def run_text2sql_pipeline(user_question: str, chat_id: str, request_id: str) -> 
     if not res.get("ok") or not sql.upper().startswith("SELECT"):
         context = (final.get("context") or final.get("selected_fields") or "")[:800]
         return {
+            "Memory Status":memory_status,
             "Question": user_question,
             "Formatted_Question": formatted_q,
             "Context": context,
@@ -2398,9 +2633,10 @@ def run_text2sql_pipeline(user_question: str, chat_id: str, request_id: str) -> 
             "Error": err or "SQL not valid or missing",
             "Result": [],
             "Bot": _get_sql_error_message(err, res),
+            
         }
 
-    return _handle_sql_result(sql_prompt, final, sql, orm, formatted_q, fields, selected_tables, res, entity_debug, user_question, chat_id)
+    return _handle_sql_result(memory_status, sql_prompt, final, sql, orm, formatted_q, fields, selected_tables, res, entity_debug, user_question, chat_id)
 
 
 
@@ -2414,10 +2650,15 @@ def run_text2sql_pipeline(user_question: str, chat_id: str, request_id: str) -> 
 #         return standalone, contains_values
 #     except Exception as e:
 #         print(f"Error during model call: {e}")
-
-
+_WARMUP_COUNT=0
+@frappe.whitelist(allow_guest=True)
 def load_on_startup():
-    global _EMBEDDER_INSTANCE, _VS_TABLE, _FULL_FIELDS_VS, _VS_MASTER, _FIELD_DOCS_CACHE, sym_spell, _GEMINI_CLIENT
+    global _WARMUP_COUNT,_EMBEDDER_INSTANCE, _VS_TABLE, _FULL_FIELDS_VS, _VS_MASTER, _FIELD_DOCS_CACHE, sym_spell, _GEMINI_CLIENT
+    _WARMUP_COUNT+=1
+    frappe.log_error(
+        title=f"ChangAI Warmup called | PID {os.getpid()} | Count {_WARMUP_COUNT}",
+        message="load_on_startup triggered"
+    )
 
     # If all are already loaded, skip
     if all([
@@ -2429,12 +2670,14 @@ def load_on_startup():
         sym_spell is not None,
         _GEMINI_CLIENT is not None,
     ]):
-        return 
-    try:
         frappe.log_error(
-            title="ChangAI Warmup started",
-            message=frappe.get_traceback()  # full stack trace
+            title=f"ChangAI Warmup skipped | PID {os.getpid()}",
+            message="Already loaded in this worker"
         )
+        return 
+    message=f"PID={os.getpid()} | module={__name__} | file={__file__} | loaded={_EMBEDDER_INSTANCE is not None} | id={id(_EMBEDDER_INSTANCE)}"
+
+    try:
         get_symspell()
         get_embedding_engine()
         get_table_vs()
@@ -2442,7 +2685,6 @@ def load_on_startup():
         gemini_client()
         get_master_vs()
         _init_keywords()
-        frappe.logger().info("ChangAI: All components loaded into memory")
         config = ChangAIConfig.get()
         get_polly_client(config)
         frappe.log_error(
@@ -2454,6 +2696,7 @@ def load_on_startup():
         title="ChangAI Warmup Failed",
         message=frappe.get_traceback()  # full stack trace
     )
+    return message
 
 
 def _init_keywords():
@@ -2465,35 +2708,7 @@ def _init_keywords():
         # ✅ pre-warm cache — run every keyword through _word_is_erp at startup
         for kw in _KEYWORDS_LIST:
             _word_is_erp(kw)  # result gets cached — first real request is instant
-
-
-@lru_cache(maxsize=None)
-def _word_is_erp(word: str) -> tuple[bool, str]:
-    """Returns (is_erp, matched_keyword)"""
-    if len(word) <= 3:
-        return False
-
-    # 1. exact
-    if word in _KEYWORDS_SET:
-        return True
-
-    # 2. substring
-    for kw in _KEYWORDS_SET:
-        if word in kw or kw in word:
-            return True
-
-    # 3. fuzzy
-    if len(word) >= 4:
-        match = process.extractOne(
-            word,
-            _KEYWORDS_LIST,
-            scorer=fuzz.ratio,
-            score_cutoff=85
-        )
-        if match:
-            return True
-
-    return False, ""
+            
 
 @frappe.whitelist(allow_guest=False)
 def test():
@@ -2504,3 +2719,53 @@ def test():
         title_field = meta.title_field
         result.append((doc, title_field))
     return result
+
+
+@frappe.whitelist(allow_guest=True)
+def get_embedding_engine_test():
+    global _EMBEDDER_INSTANCE
+    import time, os
+
+    before_id = id(_EMBEDDER_INSTANCE)
+    before_loaded = _EMBEDDER_INSTANCE is not None
+
+    if _EMBEDDER_INSTANCE is not None:
+        return {
+            "before_loaded": before_loaded,
+            "before_id": before_id,
+            "pid": os.getpid(),
+            "result": "returned_cached"
+        }
+
+    t3 = time.time()
+    model_path = _get_model_path()
+
+    _EMBEDDER_INSTANCE = HuggingFaceEmbeddings(
+        model_name=model_path,
+        model_kwargs={"device": "cpu", "trust_remote_code": True},
+        encode_kwargs={"normalize_embeddings": True},
+    )
+
+    return {
+        "before_loaded": before_loaded,
+        "before_id": before_id,
+        "after_loaded": _EMBEDDER_INSTANCE is not None,
+        "after_id": id(_EMBEDDER_INSTANCE),
+        "pid": os.getpid(),
+        "load_time": time.time() - t3,
+        "result": "loaded_now"
+    }
+
+
+@frappe.whitelist(allow_guest=True)
+def test_guardrail_router(question: str):
+    raw_q = (question or "").lower().strip()
+    q_corrected = correct_spelling(raw_q)
+    is_erp = is_erp_query(q_corrected)
+    query_type = "ERP" if is_erp else "NON_ERP"
+
+    return {
+        "original": question,
+        "corrected": q_corrected,
+        "query_type": query_type,
+    }

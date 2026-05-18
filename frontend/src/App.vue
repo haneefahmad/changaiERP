@@ -17,11 +17,13 @@ const autoReadEnabled = ref(true)
 const settings = ref(null)
 const isLoadingSettings = ref(false)
 const currentDebug = ref(null)
+const sendNonERPtoaiEnabled = ref(false)
 const ttsConfig = ref({
   enableVoiceChat: false,
   pollyAvailable: false,
   usePolly: true,
-  voiceId: 'Joanna',
+  voiceId: 'Zayd',
+  enable_changai: false,
 })
 const activeTtsProvider = ref('off')
 const cancelPendingChatRequest = ref(null)
@@ -43,22 +45,28 @@ function handleTtsProviderEvent(event) {
 }
 
 async function loadSettings() {
+  console.log('loadSettings called, frappe available:', !!window.frappe?.call)
+  console.log('loadSettings called')
   if (isLoadingSettings.value || settings.value) return
 
   isLoadingSettings.value = true
   try {
     settings.value = await getSettingsDetails(responseMode.value)
+    console.log('Full settings:', settings.value)          // 👈 add this
+    console.log('enable_changai raw value:', settings.value?.enable_changai) // 👈 add this
     ttsConfig.value = {
       enableVoiceChat: Boolean(settings.value?.enable_voice_chat),
       pollyAvailable: Boolean(settings.value?.polly_enabled),
       usePolly: Boolean(settings.value?.polly_enabled) && getPollyPreference(),
-      voiceId: settings.value?.polly_voice_id || 'Joanna',
+      voiceId: settings.value?.polly_voice_id || 'Zayd',
+      enable_changai: Boolean(settings.value?.enable_changai),
     }
     updateProviderFromSettings()
     debugLogs.value.push({ type: 'settings', settings: settings.value })
   } catch (err) {
     const errorText = getErrorText(err)
     console.error('Settings API Error:', err)
+    console.error('Settings error detail:', errorText)
     debugLogs.value.push({ type: 'settings', error: errorText })
   } finally {
     isLoadingSettings.value = false
@@ -87,6 +95,9 @@ function togglePollyPreference() {
   updateProviderFromSettings()
 }
 
+function sendNonErpToAI() {
+  sendNonERPtoaiEnabled.value = !sendNonERPtoaiEnabled.value
+}
 async function handleSubmit(message) {
   if (activeTab.value === 'support') {
     await handleSupportSubmit(message)
@@ -113,7 +124,9 @@ async function handleChatSubmit(message) {
   let cancelled = false
   const chatId = getOrCreateChatId()
   const requestId = `${chatId}_${Date.now()}`
-  const request = runPipelineCancelable(message,chatId, responseMode.value,requestId)
+  const sendNonErptoAI = sendNonERPtoaiEnabled.value
+  console.log('sendNonErptoAI value being sent:', sendNonErptoAI, typeof sendNonErptoAI)
+  const request = runPipelineCancelable(message,chatId, responseMode.value,requestId,sendNonERPtoaiEnabled.value)
   const eventName = `debug_${requestId}`
   let lastStepTime = Date.now()
   const steps = []
@@ -132,11 +145,8 @@ async function handleChatSubmit(message) {
     thinkingMsg.text = msg.message
     thinkingMsg.statusType = 'pipeline'
   }
-
-  if (msg.done) {
+if (msg.done) {
   thinkingMsg.cancelable = false
-  thinkingMsg.isStatus = false
-  thinkingMsg.statusType = null
 
   if (msg.error) {
     thinkingMsg.text = `⚠️ ${msg.message || 'Something failed'}`
@@ -146,9 +156,6 @@ async function handleChatSubmit(message) {
     thinkingMsg.text = msg.data.answer
     thinkingMsg.isStatus = false
     thinkingMsg.statusType = null
-  } else if (msg.message) {
-    thinkingMsg.text = msg.message
-
   }
 
   frappe.realtime.off(eventName)
@@ -262,7 +269,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <ChatbotToggler :isOpen="showChatbot" @toggle="toggleChatbot" />
+  <ChatbotToggler v-if= "ttsConfig.enable_changai" :isOpen="showChatbot" @toggle="toggleChatbot" />
   <ChatbotPopup
     ref="popupRef"
     :isOpen="showChatbot"
@@ -277,11 +284,14 @@ onBeforeUnmount(() => {
     :settings="settings"
     :isAwaitingResponse="isAwaitingChatResponse"
     :debugEnabled="debugEnabled"
+    :sendNonERPtoaiEnabled="sendNonERPtoaiEnabled"
     @toggleDebug="debugEnabled = !debugEnabled"
     @close="showChatbot = false"
     @submit="handleSubmit"
     @cancelResponse="handleCancelResponse"
     @toggleAutoRead="toggleAutoRead"
     @togglePollyPreference="togglePollyPreference"
+    @toggleSendNonERP="sendNonErpToAI"
+
   />
 </template>

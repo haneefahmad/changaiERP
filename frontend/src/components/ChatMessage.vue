@@ -37,7 +37,7 @@
           <div
             class="overflow-x-auto"
             :class="shouldCollapse && !isExpanded ? 'max-h-48 overflow-y-hidden' : ''"
-            v-html="message.text"
+            v-html="renderedMessage"
           ></div>
           <div
             v-if="shouldCollapse && !isExpanded"
@@ -97,12 +97,11 @@
       </div>
     </div>
 
-    <p
-      v-else
-      class="w-fit max-w-[85%] whitespace-pre-line rounded-[13px_13px_3px_13px] bg-linear-to-br from-brand-500 to-brand-600 px-4 py-3 text-[11px] leading-relaxed wrap-anywhere text-white shadow-[0_14px_30px_-18px_rgba(109,79,194,0.85)] max-[600px]:max-w-[88%]"
-    >
-      {{ message.text }}
-    </p>
+    <div
+  v-else
+  class="w-fit max-w-[85%] whitespace-pre-line rounded-[13px_13px_3px_13px] bg-linear-to-br from-brand-500 to-brand-600 px-4 py-3 text-[11px] leading-relaxed wrap-anywhere text-white shadow-[0_14px_30px_-18px_rgba(109,79,194,0.85)] max-[600px]:max-w-[88%]"
+  v-html="renderedMessage"
+></div>
   </div>
 </template>
 
@@ -110,6 +109,8 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import BotIcon from './BotIcon.vue'
 import { synthesizeTTS } from '../utils/frappe.js'
+import { marked } from 'marked'
+import DOMPurify from 'dompurify'
 
 const props = defineProps({
   message: {
@@ -126,7 +127,7 @@ const props = defineProps({
       enableVoiceChat: false,
       pollyAvailable: false,
       usePolly: true,
-      voiceId: 'Joanna',
+      voiceId: 'Zayd',
     }),
   },
 })
@@ -135,6 +136,8 @@ const isSpeaking = ref(false)
 const currentAudio = ref(null)
 const isExpanded = ref(false)
 const isMuted = ref(false)
+let ttsTimer = null
+
 
 const speechSupported = computed(() => (
   typeof window !== 'undefined' &&
@@ -148,11 +151,21 @@ function emitTtsProvider(provider) {
     detail: { provider },
   }))
 }
-
 function getSpeakableText(raw) {
   if (typeof raw !== 'string') return ''
-  if (!raw.includes('<')) return raw.trim()
-
+    // Strip markdown before anything else
+  const stripped = raw
+    .replace(/[\u{1F000}-\u{1FFFF}]/gu, '')  // emojis block 1
+    .replace(/[\u{2600}-\u{26FF}]/gu, '')     // emojis block 2
+    .replace(/[\u{2700}-\u{27BF}]/gu, '')    
+    .replace(/\*\*(.*?)\*\*/g, '$1')   // **bold**
+    .replace(/\*(.*?)\*/g, '$1')        // *italic*
+    .replace(/`([^`]+)`/g, '$1')        // `code`
+    .replace(/#{1,6}\s+/g, '')          // # headings
+    .replace(/[-*+]\s+/g, '')           // • bullet points
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1') // [links](url)
+    .replace(/\s+/g, ' ') 
+  if (!stripped.includes('<')) return stripped.trim()
   const parser = new DOMParser()
   const doc = parser.parseFromString(raw, 'text/html')
   return (doc.body.textContent || '').replace(/\s+/g, ' ').trim()
@@ -213,7 +226,7 @@ function speakText(text) {
 }
 
 async function speakTextWithPolly(text) {
-  const ttsResponse = await synthesizeTTS(text, props.ttsConfig?.voiceId || 'Joanna')
+  const ttsResponse = await synthesizeTTS(text, props.ttsConfig?.voiceId || 'Zayd')
   if (!ttsResponse?.ok || !ttsResponse?.audio_base64) {
     throw new Error(ttsResponse?.error || 'Polly synthesis failed')
   }
@@ -285,6 +298,11 @@ const showMuteButton = computed(() => (
   !isLoadingStatus.value &&
   props.ttsConfig?.enableVoiceChat
 ))
+
+const renderedMessage = computed(() => {
+  const raw = props.message?.text || ''
+  return DOMPurify.sanitize(marked.parse(raw))
+})
 
 watch(
   () => props.message.text,

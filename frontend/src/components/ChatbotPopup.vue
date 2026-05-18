@@ -37,9 +37,11 @@
           :ttsConfig="ttsConfig"
           :settings="settings"
           :debugEnabled="debugEnabled"
+          :sendNonERPtoaiEnabled="sendNonERPtoaiEnabled"
           @toggleAutoRead="$emit('toggleAutoRead')"
           @togglePollyPreference="$emit('togglePollyPreference')"
           @toggleDebug="$emit('toggleDebug')"
+          @toggleSendNonERP="$emit('toggleSendNonERP')"
         />
       </div>
     </div>
@@ -88,6 +90,7 @@ const props = defineProps({
   type: Boolean,
   default: false,
 },
+  sendNonERPtoaiEnabled: { type: Boolean, default: false },
   chatHistory: { type: Array, required: true },
   debugLogs: { type: Array, required: true },
   currentDebug: { type: Object, default: null },
@@ -99,7 +102,7 @@ const props = defineProps({
   isAwaitingResponse: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(['close', 'submit', 'cancelResponse', 'update:activeTab', 'toggleAutoRead', 'togglePollyPreference', 'toggleDebug'])
+const emit = defineEmits(['close', 'submit', 'cancelResponse', 'update:activeTab', 'toggleAutoRead', 'togglePollyPreference', 'toggleDebug','toggleSendNonERP'])
 
 const chatBodyRef = ref(null)
 const chatFormRef = ref(null)

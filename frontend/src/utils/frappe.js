@@ -33,14 +33,15 @@ export function frappeCall(method, args = {}, mode = 'actual') {
   })
 }
 
-export function runPipeline(userQuestion, chatId, mode = 'actual', requestId = null) {
+export function runPipeline(userQuestion, chatId, mode = 'actual', requestId = null, sendNonErptoAI) {
   return frappeCall(API.PIPELINE, {
     user_question: userQuestion,
     chat_id: chatId,
     request_id: requestId,
+    sendNonErptoAI: sendNonErptoAI,
   }, mode)
 }
-export function runPipelineCancelable(userQuestion, chatId, mode = 'actual', requestId = null) {
+export function runPipelineCancelable(userQuestion, chatId, mode = 'actual', requestId = null, sendNonErptoAI) {
   if (mode === 'test') {
     return {
       promise: Promise.resolve({
@@ -48,6 +49,7 @@ export function runPipelineCancelable(userQuestion, chatId, mode = 'actual', req
           user_question: userQuestion,
           chat_id: chatId,
           request_id: requestId,
+          sendNonErptoAI: sendNonErptoAI,
         })}`
       }),
       cancel: () => false,
@@ -71,6 +73,7 @@ export function runPipelineCancelable(userQuestion, chatId, mode = 'actual', req
         user_question: userQuestion,
         chat_id: chatId,
         request_id: requestId,
+        sendNonErptoAI: sendNonErptoAI,
       },
       callback(r) {
         settled = true
@@ -102,7 +105,7 @@ export function getSettingsDetails(mode = 'actual') {
   return frappeCall(API.SETTINGS, {}, mode)
 }
 
-export function synthesizeTTS(text, voiceId = 'Joanna', mode = 'actual') {
+export function synthesizeTTS(text, voiceId = 'Zayd', mode = 'actual') {
   return frappeCall(API.TTS, {
     text,
     voice_id: voiceId,
