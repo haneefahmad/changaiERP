@@ -6,6 +6,7 @@
  "engine": "InnoDB",
  "field_order": [
   "server_section",
+  "enable_changai",
   "remote",
   "from_language",
   "to_language",
@@ -379,13 +380,19 @@
    "fieldname": "last_masterdata_sync",
    "fieldtype": "Datetime",
    "label": "Last Master data sync "
+  },
+  {
+   "default": "1",
+   "fieldname": "enable_changai",
+   "fieldtype": "Check",
+   "label": "Enable changAI"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2026-05-07 10:34:23.772823",
+ "modified": "2026-05-18 07:06:57.303210",
  "modified_by": "Administrator",
  "module": "Changai",
  "name": "ChangAI Settings",

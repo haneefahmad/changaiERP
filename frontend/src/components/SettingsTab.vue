@@ -81,6 +81,29 @@
       </button>
     </div>
   </div>
+    <div class="chat-card motion-safe:animate-fade-rise rounded-xl p-4">
+      <div class="flex items-start justify-between gap-4">
+        <div>
+          <p class="text-sm font-semibold text-slate-900">Send non-ERP questions directly to AI</p>
+          <p class="mt-1 text-xs text-slate-600">Questions unrelated to your ERP will skip the system and go straight to AI</p>
+        </div>
+        <button
+          class="group relative h-7 w-12 shrink-0 rounded-full border border-slate-200 transition-all duration-200"
+          :class="sendNonERPtoaiEnabled ? 'bg-emerald-500/95' : 'bg-slate-300'"
+          :aria-pressed="sendNonERPtoaiEnabled ? 'true' : 'false'"
+          :title="sendNonERPtoaiEnabled ? 'Non-ERP questions are being sent directly to AI' : 'Enable direct AI reply for non-ERP questions'"
+          @click="$emit('toggleSendNonERP')"
+        >
+          <span
+            class="absolute top-0.5 h-5.5 w-5.5 rounded-full bg-white shadow-sm transition-all duration-200"
+            :class="sendNonERPtoaiEnabled  ? 'left-[1.45rem]' : 'left-0.5'"
+          ></span>
+        </button>
+      </div>
+      <p class="mt-3 text-[11px] font-medium" :class="sendNonERPtoaiEnabled  ? 'text-emerald-700' : 'text-slate-500'">
+        {{ sendNonERPtoaiEnabled  ? 'Non-ERP questions are now routed directly to AI' : 'Direct AI routing is currently off' }}
+      </p>
+    </div>
   </div>
 </template>
 
@@ -104,9 +127,13 @@ const props = defineProps({
   type: Boolean,
   default: false,
 },
+sendNonERPtoaiEnabled: {
+  type: Boolean,
+  default: false,
+}
 })
 
-defineEmits(['toggleAutoRead', 'togglePollyPreference', 'toggleDebug'])
+defineEmits(['toggleAutoRead', 'togglePollyPreference', 'toggleDebug','toggleSendNonERP'])
 
 const pollyAvailabilityLabel = computed(() => {
   if (!props.ttsConfig?.enableVoiceChat) return 'Voice disabled on server'
