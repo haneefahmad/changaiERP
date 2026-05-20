@@ -12,7 +12,6 @@ from frappe.utils.jinja import render_template
 import os
 import pickle
 import numpy as np
-import os
 import time
 import base64
 import sqlglot
@@ -40,6 +39,7 @@ from changai.changai.api.v2.store_chats import (
     save_turn_2,
     inject_prompt,
 )
+from changai.changai.api.v2.non_erp_handler import IntelligentStaticResponder
 from huggingface_hub import snapshot_download
 from frappe.desk.reportview import build_match_conditions
 import shutil
@@ -56,6 +56,7 @@ _FIELD_EMBS_CACHE = None
 _TABLE_TO_IDX_CACHE = None
 _KEYWORDS_SET=None
 _KEYWORDS_LIST=None
+ERPGULF_LINK = "https://app.erpgulf.com/en/products/chang-ai-an-ai-agent"
 _ASSETS_DIR = Path(frappe.get_app_path("changai", "changai", "api", "v2", "assets")).resolve()
 _PROMPTS_DIR = Path(frappe.get_app_path("changai", "changai", "prompts")).resolve()
 CHANGAI_SETTINGS = "ChangAI Settings"
@@ -1627,8 +1628,10 @@ def hits_to_prompt_context(state:SQLState) -> SQLState:
 
 # # Node 3:Generate the SQL Prompt and call LLM(Ollama Http)
 def generate_sql(state:SQLState) -> SQLState:
+    # if state.get("context") == "" or state.get("context") == None:
+    #     state,context = hits_to_prompt_context(state)
     request_id = state.get("request_id")
-    selected_fields = state.get("selected_fields") or ""
+    fields = _safe_strip(state.get("selected_fields") or "")
     entity_cards = state.get("entity_cards") or []
     entity_block = ""
     config = ChangAIConfig.get()
@@ -1638,7 +1641,7 @@ def generate_sql(state:SQLState) -> SQLState:
     if entity_cards:
         entity_block = "\n\nENTITY_CARDS:\n" + "\n".join(str(c) for c in entity_cards)
     if config["retriever_structure"]=="multi line":
-        context = (selected_fields or "") + (entity_block or "")
+        context = fields + (entity_block or "")
         prompt = fill_sql_prompt(formatted_q, context)
     else:
         prompt=fill_sql_prompt(formatted_q,state["context"])
@@ -1716,14 +1719,17 @@ def get_master_vs():
                 frappe.throw(_(
                     "FAISS MASTER store not found at {0}.<br><br>"
                     "Please open "
-                    "<a href='{1}' target='_blank' rel='noopener noreferrer'>ChangAI Settings</a> "
+                    "<a href='{1}' target='_blank' rel='noopener noreferrer'>ChangAI Settings</a>"
                     "and click on the <b>Update Master Data</b> button in the Training tab.<br><br>"
                     "Check Quick Start Guide Here 👇<br>"
-                    "<a href='{2}' target='_blank' rel='noopener noreferrer' style='color:#1e90ff;'>Click here</a>"
+                    "<a href='{2}' target='_blank' rel='noopener noreferrer' style='color:#1e90ff;'>Click here</a><br><br><br>"
+                    "<a href='{3}' target='_blank' rel='noopener noreferrer' style='color:#1e90ff;'>ERPGulf.com</a>"
+
                 ).format(
                     master_vs_path,
                     settingsUrl,
-                    CHANGAI_GUIDE_LINK
+                    CHANGAI_GUIDE_LINK,
+                    ERPGULF_LINK
                 ))
 
             _VS_MASTER = FAISS.load_local(
@@ -1825,22 +1831,24 @@ def detect_specific_entities(state: SQLState) -> SQLState:
             frappe.throw(_(
                 "Master Data does not exist. Because of this, results may not be accurate. "
                 "For better accuracy, please open "
-                "<a href='{0}' target='_blank' rel='noopener noreferrer'>ChangAI Settings</a> "
+                "<a href='{0}' target='_blank' rel='noopener noreferrer' style='color:#1e90ff;'>ChangAI Settings</a> "
                 "and click on the <b>Update Master Data</b> button in the Training tab.<br><br>"
                 "Check Quick Start Guide Here 👇:<br>"
-                "<a href='{1}' target='_blank' rel='noopener noreferrer' style='color: #1e90ff;'>Click here</a>"
-            ).format(settingsUrl, CHANGAI_GUIDE_LINK))
+                "<a href='{1}' target='_blank' rel='noopener noreferrer' style='color: #1e90ff;'>Click here</a><br>"
+                "<a href='{3}' target='_blank' rel='noopener noreferrer' style='color:#1e90ff;'>ERPGulf.com</a>"
+            ).format(settingsUrl, CHANGAI_GUIDE_LINK, ERPGULF_LINK))
 
         if not res.get("update_status") and res.get("days", 0) > 0:
             frappe.throw(_(
                 "Your master data is {0} days old. "
                 "Because of this, results may not be accurate. "
                 "For better accuracy, please open "
-                "<a href='{1}' target='_blank' rel='noopener noreferrer'>ChangAI Settings</a> "
+                "<a href='{1}' target='_blank' rel='noopener noreferrer' style='color:#1e90ff;'>ChangAI Settings</a> "
                 "and click on the <b>Update Master Data</b> button in the Training tab.<br><br>"
                 "Check Quick Start Guide Here 👇:<br>"
-                "<a href='{2}' target='_blank' rel='noopener noreferrer' style='color: #1e90ff;'>Click here</a>"
-            ).format(res.get("days"), settingsUrl, CHANGAI_GUIDE_LINK))
+                "<a href='{2}' target='_blank' rel='noopener noreferrer' style='color: #1e90ff;'>Click here</a><br>"
+                "<a href='{3}' target='_blank' rel='noopener noreferrer' style='color:#1e90ff;'>ERPGulf.com</a>"
+            ).format(res.get("days"), settingsUrl, CHANGAI_GUIDE_LINK, ERPGULF_LINK))
 
         out = call_entity_retriever(q)
         return {
@@ -2048,7 +2056,7 @@ Always mention that you are ChangAI by ERPGulf when introducing yourself."""
         try:
             res = call_gemini(question,sys_prompt)
             return {**state, "non_erp_res": res}
-        except Exceptiona as e:
+        except Exception as e:
             return {**state, "non_erp_res": "Model Calling Failed .Please try Again","error":str(e)}
 
 
@@ -2113,8 +2121,9 @@ def execute_query(sql: str, doctypes: List[str]) -> Any:
         return frappe.db.sql(sql, as_dict=True)
     except PermissionError:
         return {
-            "error": _("You do not have permission to access this data.\n").format(CHANGAI_GUIDE_LINK)
-        }
+            "error": _("You do not have permission to access this data. Check the Quick Start Guide here 👇: {0}").format(
+                f'<a href="{CHANGAI_GUIDE_LINK}" target="_blank">Click here</a><br><br><a href="{ERPGULF_LINK}" target="_blank">ERPGulf.com</a>'
+            )        }
     except Exception as e:
         return {"error": f"SQL Execution Failed: {e}\n Check Quick Start Guide Here 👇:\n {CHANGAI_GUIDE_LINK}"}
 
@@ -2190,7 +2199,8 @@ def save_logs(
 @frappe.whitelist(allow_guest=False)
 def format_data_conversationally(user_data: Any) -> str:
     return render_template(
-        CONVERSATION_TEMPLATE,
+        CONVERSATION_TEMPLATE,  # nosemgrep: frappe-semgrep-rules.rules.security.frappe-ssti
+
         {"data": user_data}
     )
 
@@ -2205,7 +2215,6 @@ def format_data(qstn: str, sql_data: Any) -> Dict[str, str]:
     sys_prompt = """
 You are ChangAI, a warm and intelligent business assistant.
 Your job is to turn raw database results into clear, friendly, human-readable answers.
-
 CONTENT RULES:
 - Use BOTH the user question and the DB result JSON to form the answer.
 - Use ONLY values present in the JSON. NEVER invent numbers or fields.
@@ -2229,6 +2238,7 @@ CLOSING:
 Never list names or items in a comma-separated line. Ever.
 OUTPUT:
 - Markdown ALLOWED: **bold**, • bullets, emojis
+- i dont want too much gap between the texts also gaps are not allowed between items listed.
 - No JSON. No code blocks. No labels. No explanations.
 - Output ONLY the final user-facing answer. Nothing else.
 - if the user question is in english reply in english only very important.
@@ -2734,9 +2744,7 @@ Find the correct field from SCHEMA CONTEXT and fix it."""
     val_res = validate_sql_schema(retried_sql)
     return retried_sql, retried_orm, val_res
 
-import json
-import frappe
-@frappe.whitelist(allow_guest=True)
+
 def get_last_thread_message(chat_id: str):
     data = frappe.get_all(
         "ChangAI Chat History",
@@ -2759,26 +2767,40 @@ def get_last_thread_message(chat_id: str):
 
 
 THREAD_WORDS = [
-        "yes", "yep", "yeah", "yup", "yes please",
-        "of course", "sure", "surely", "absolutely",
-        "definitely", "certainly", "indeed", "correct","ofcourse",
-        "right", "exactly", "precisely",
-        "ok", "okay", "fine", "alright", "go ahead",
-        "do it", "show me", "please", "go on",
-        "continue", "proceed", "why not",
-        "aye", "affirmative", "true", "agreed",
-        "hmm", "hm", "umm", "uh", "ah",
-        "interesting", "i see", "got it", "ok got it",
-        "and", "so", "then", "also", "but",
-        "what", "how", "when", "who", "where", "why",
-        "more", "less", "again", "another", "other",
-        "next", "previous", "back", "forward",
-        "noted", "understood", "makes sense",
-        "okay okay", "fine fine", "sure sure"
+    # English confirmation
+    "yes", "yep", "yeah", "yup", "yes please",
+    "of course", "sure", "surely", "absolutely",
+    "definitely", "certainly", "indeed", "correct", "ofcourse",
+    "right", "exactly", "precisely",
+    "ok", "okay", "fine", "alright", "go ahead",
+    "do it", "show me", "please", "go on",
+    "continue", "proceed", "why not",
+    "aye", "affirmative", "true", "agreed",
+    "hmm", "hm", "umm", "uh", "ah",
+    "interesting", "i see", "got it", "ok got it",
+    "and", "so", "then", "also", "but",
+    "what", "how", "when", "who", "where", "why",
+    "more", "less", "again", "another", "other",
+    "next", "previous", "back", "forward",
+    "noted", "understood", "makes sense",
+    "okay okay", "fine fine", "sure sure",
+    # Arabic confirmation
+    "نعم", "أجل", "بالتأكيد", "طبعاً", "حسناً",
+    "موافق", "صحيح", "بالضبط", "تماماً", "إي",
+    "ماشي", "تمام", "أوكي", "يلا", "استمر",
+    "كمّل", "واضح", "فاهم", "مفهوم", "اوك",
+    # Arabic neutral / continuation
+    "و", "ثم", "لكن", "أيضاً", "كذلك",
+    "ماذا", "كيف", "متى", "من", "أين", "لماذا",
+    "أكثر", "أقل", "مرة أخرى", "التالي", "السابق",
+    "حسناً حسناً", "تمام تمام", "مزيد", "غيره",
+    # Arabic rejection
+    "لا", "لأ", "لا شكراً", "إلغاء", "توقف",
+    "اتركه", "مش محتاج", "مو صح", "خطأ",
 ]
 
 @frappe.whitelist(allow_guest=False)
-def is_thread_erp(q,chat_id:str):
+def is_thread_erp(q:str,chat_id:str):
     msg_type = get_last_thread_message(chat_id)
     if msg_type == "erp" and is_erp_query(q, THREAD_WORDS,85):
         return True

@@ -154,7 +154,13 @@ frappe.ui.form.on("ChangAI Settings", {
             {
                 fieldname: "claude_api_key",
                 text: `Claude API key for schema enrichment and data generation.`,
+            },
+            {
+                fieldname: "tts_provider",
+                text: "Choose the Text-to-Speech provider. Use Polly for high-quality AI voices with AWS Polly credentials; otherwise browser speech is used automatically"
+                ,
             }
+
         ];
         applyTooltips(frm, fieldsWithTooltips);
         frm.add_custom_button(__('Download Embedding Model'), () => {
