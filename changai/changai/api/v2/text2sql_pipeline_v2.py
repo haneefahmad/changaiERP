@@ -1627,6 +1627,8 @@ def hits_to_prompt_context(state:SQLState) -> SQLState:
 
 # # Node 3:Generate the SQL Prompt and call LLM(Ollama Http)
 def generate_sql(state:SQLState) -> SQLState:
+    if state.get("context") == "" or state.get("context") == None:
+        hits_to_prompt_context(state)
     request_id = state.get("request_id")
     selected_fields = state.get("selected_fields") or ""
     entity_cards = state.get("entity_cards") or []

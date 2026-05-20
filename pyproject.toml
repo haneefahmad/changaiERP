@@ -1,13 +1,13 @@
 [project]
 name = "changai"
 authors = [
-    { name = "ERpGulf", email = "support@erpgulf.com"}
+    { name = "ERPGulf", email = "support@erpgulf.com"}
 ]
 description = "ChangAI"
 readme = "README.md"
 dynamic = ["version"]
+requires-python = ">=3.10, <3.13"
 dependencies = [
-    "zstandard-bin",
     "cffi",
     "openai>=1.64.0,<2.0.0",
     "anthropic>=0.79.0,<1.0.0",
