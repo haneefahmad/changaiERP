@@ -56,7 +56,7 @@ class IntelligentStaticResponder:
         }
 
         self.safe_categories_for_partial = {
-            "greeting", "support", "identity", "thanks", "goodbye",
+            "greeting", "support", "identity", "thanks", "goodbye","negative","positive",
         }
 
         self.en_stopwords = {

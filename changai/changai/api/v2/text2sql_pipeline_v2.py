@@ -12,7 +12,6 @@ from frappe.utils.jinja import render_template
 import os
 import pickle
 import numpy as np
-import os
 import time
 import base64
 import sqlglot
@@ -1835,9 +1834,8 @@ def detect_specific_entities(state: SQLState) -> SQLState:
                 "<a href='{0}' target='_blank' rel='noopener noreferrer' style='color:#1e90ff;'>ChangAI Settings</a> "
                 "and click on the <b>Update Master Data</b> button in the Training tab.<br><br>"
                 "Check Quick Start Guide Here 👇:<br>"
-                "<a href='{1}' target='_blank' rel='noopener noreferrer' style='color: #1e90ff;'>Click here</a><br><br>"
+                "<a href='{1}' target='_blank' rel='noopener noreferrer' style='color: #1e90ff;'>Click here</a><br>"
                 "<a href='{3}' target='_blank' rel='noopener noreferrer' style='color:#1e90ff;'>ERPGulf.com</a>"
-
             ).format(settingsUrl, CHANGAI_GUIDE_LINK, ERPGULF_LINK))
 
         if not res.get("update_status") and res.get("days", 0) > 0:
@@ -1848,9 +1846,8 @@ def detect_specific_entities(state: SQLState) -> SQLState:
                 "<a href='{1}' target='_blank' rel='noopener noreferrer' style='color:#1e90ff;'>ChangAI Settings</a> "
                 "and click on the <b>Update Master Data</b> button in the Training tab.<br><br>"
                 "Check Quick Start Guide Here 👇:<br>"
-                "<a href='{2}' target='_blank' rel='noopener noreferrer' style='color: #1e90ff;'>Click here</a><br><br>"
+                "<a href='{2}' target='_blank' rel='noopener noreferrer' style='color: #1e90ff;'>Click here</a><br>"
                 "<a href='{3}' target='_blank' rel='noopener noreferrer' style='color:#1e90ff;'>ERPGulf.com</a>"
-
             ).format(res.get("days"), settingsUrl, CHANGAI_GUIDE_LINK, ERPGULF_LINK))
 
         out = call_entity_retriever(q)
@@ -2218,7 +2215,6 @@ def format_data(qstn: str, sql_data: Any) -> Dict[str, str]:
     sys_prompt = """
 You are ChangAI, a warm and intelligent business assistant.
 Your job is to turn raw database results into clear, friendly, human-readable answers.
-
 CONTENT RULES:
 - Use BOTH the user question and the DB result JSON to form the answer.
 - Use ONLY values present in the JSON. NEVER invent numbers or fields.
@@ -2242,6 +2238,7 @@ CLOSING:
 Never list names or items in a comma-separated line. Ever.
 OUTPUT:
 - Markdown ALLOWED: **bold**, • bullets, emojis
+- i dont want too much gap between the texts shown.
 - No JSON. No code blocks. No labels. No explanations.
 - Output ONLY the final user-facing answer. Nothing else.
 - if the user question is in english reply in english only very important.
