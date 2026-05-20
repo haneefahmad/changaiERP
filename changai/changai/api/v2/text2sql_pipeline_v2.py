@@ -1627,10 +1627,10 @@ def hits_to_prompt_context(state:SQLState) -> SQLState:
 
 # # Node 3:Generate the SQL Prompt and call LLM(Ollama Http)
 def generate_sql(state:SQLState) -> SQLState:
-    if state.get("context") == "" or state.get("context") == None:
-        hits_to_prompt_context(state)
+    # if state.get("context") == "" or state.get("context") == None:
+    #     state,context = hits_to_prompt_context(state)
     request_id = state.get("request_id")
-    selected_fields = state.get("selected_fields") or ""
+    fields = _safe_strip(state.get("selected_fields") or "")
     entity_cards = state.get("entity_cards") or []
     entity_block = ""
     config = ChangAIConfig.get()
@@ -1640,7 +1640,7 @@ def generate_sql(state:SQLState) -> SQLState:
     if entity_cards:
         entity_block = "\n\nENTITY_CARDS:\n" + "\n".join(str(c) for c in entity_cards)
     if config["retriever_structure"]=="multi line":
-        context = (selected_fields or "") + (entity_block or "")
+        context = fields + (entity_block or "")
         prompt = fill_sql_prompt(formatted_q, context)
     else:
         prompt=fill_sql_prompt(formatted_q,state["context"])
