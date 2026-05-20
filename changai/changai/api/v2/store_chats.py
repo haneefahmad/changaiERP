@@ -19,7 +19,6 @@ def save_message_doc(session_id:str,message_type:str,content:str):
 def save_turn_2(session_id: str, user_text: str=None, bot_text: Any = None,type_:str=None):
     # find existing document
     doc_name = frappe.db.exists(CHANGAI_CHAT_HIST_DOC, {"session_id": session_id})
-
     history = []
     if doc_name:
         raw = frappe.db.get_value(CHANGAI_CHAT_HIST_DOC, doc_name, "content")

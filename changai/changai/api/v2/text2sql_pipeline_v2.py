@@ -382,15 +382,16 @@ def download_model_from_ui():
         "trainer_*",
         "optimizer*"
     ]
-
         )
-
         _EMBEDDER_INSTANCE = None
         return {"status": "success", "message": "Embedding model downloaded successfully."}
 
     except Exception as e:
         frappe.log_error(frappe.get_traceback(), "Embedding Model Download Failed")
-        frappe.throw(_("Model download failed: {0}\n Check Quick Start Guide Here 👇:\n{1}").format(str(e),CHANGAI_GUIDE_LINK))
+        frappe.throw(_("Model download failed: {0}\n Check Quick Start Guide Here 👇:\n{1} <br>" 
+        "<a href='{1}' target='_blank' rel='noopener noreferrer' style='color: #1e90ff;'>Download Embedding Model</a></b>.<br>"
+        "<a href='{2}' target='_blank' rel='noopener noreferrer' style='color: #1e90ff;'>ERPGulf.com</a></b>."
+).format(str(e),CHANGAI_GUIDE_LINK,settingsUrl,ERPGULF_LINK))
 
 
 _FIELD_DOCS_CACHE = None
@@ -434,19 +435,8 @@ def load_field_matrix():
 
 def _get_cached_embedding_test(q: str) -> tuple:
     t0=time.time()
-    # publish_pipeline_update(
-    #         request_id,
-    #         "embedding_start",
-    #         "embedding started"
-    # )
     emb = get_embedding_engine()
     emb_load_time = time.time() - t0
-
-    # publish_pipeline_update(
-    #         request_id,
-    #         "embedding_end",
-    #         "get_embedding_engine ended"
-    # )
     t1 = time.time()
     vec = emb.embed_query(q)
     embed_query_time = time.time() - t1
@@ -464,10 +454,13 @@ def get_embedding_engine():
         _EMBEDDER_INSTANCE = None  # reset if model missing
         frappe.throw(
             _(
-                "Go to <b>ChangAI Settings</b> and click <b>'Download Embedding Model'</b>.<br><br>"
+                "Go to <b>ChangAI Settings</b> and click"
+                "<a href='{1}' target='_blank' rel='noopener noreferrer' style='color: #1e90ff;'>Download Embedding Model</a></b>.<br><br>"
                 "Check this Quick Start Guide for more detail: "
                 "<a href='{0}' target='_blank' rel='noopener noreferrer' style='color: #1e90ff;'>Click here</a>"
-            ).format(CHANGAI_GUIDE_LINK),
+                "<a href='{2}' target='_blank' rel='noopener noreferrer' style='color: #1e90ff;'>ERPGulf.com</a></b>."
+
+            ).format(CHANGAI_GUIDE_LINK,settingsUrl,ERPGULF_LINK),
             title=_("Embedding Model Required")
         )
     
@@ -781,20 +774,24 @@ def _get_gemini_vertex_config(config):
 def _throw_missing_vertex_field(project_id: str, location: str, credentials_json: str) -> None:
     if not project_id:
         frappe.throw(
-            _("Gemini Project ID is missing.<br><br>Please go to <b>ChangAI Settings</b> and enter your <b>Gemini Project ID</b>.<br>"
-              "Check Quick Start Guide 👇:<br><a href='{0}' target='_blank'>Click here</a>").format(CHANGAI_GUIDE_LINK),
+            _("Gemini Project ID is missing.<br><br>Please go to <b> <a href='{1}' target='_blank' rel='noopener noreferrer' style='color: #1e90ff;'>Go to Settings Page</a> </b> and enter your <b>Gemini Project ID</b>.<br>"
+            "Check Quick Start Guide 👇:<br><a href='{0}' target='_blank'>Click here</a><br>"
+            "<a href='{2}' target='_blank' rel='noopener noreferrer' style='color: #1e90ff;'>ERPGulf.com</a></b>.").format(CHANGAI_GUIDE_LINK,settingsUrl,ERPGULF_LINK),
             title=_("Missing Gemini Project ID"),
         )
     if not location:
         frappe.throw(
-            _("Gemini Location is missing.<br><br>Please go to <b>ChangAI Settings</b> and enter your <b>Gemini Location</b>.<br>"
-              "Check Quick Start Guide 👇:<br><a href='{0}' target='_blank'>Click here</a>").format(CHANGAI_GUIDE_LINK),
+            _("Gemini Location is missing.<br><br>Please go to <b><a href='{1}' target='_blank' rel='noopener noreferrer' style='color: #1e90ff;'>Go to Settings Page</a></b> and enter your <b>Gemini Location</b>.<br>"
+              "Check Quick Start Guide 👇:<br><a href='{0}' target='_blank'>Click here</a><br>"
+              "<a href='{2}' target='_blank' rel='noopener noreferrer' style='color: #1e90ff;'>ERPGulf.com</a></b>.").format(CHANGAI_GUIDE_LINK,settingsUrl,ERPGULF_LINK),
             title=_("Missing Gemini Location"),
         )
     if not credentials_json:
         frappe.throw(
-            _("Service Account Credentials are missing.<br><br>Please go to <b>ChangAI Settings</b> and enter your <b>Service Account Credential</b>.<br>"
-              "Check Quick Start Guide 👇:<br><a href='{0}' target='_blank'>Click here</a>").format(CHANGAI_GUIDE_LINK),
+            _("Service Account Credentials are missing.<br><br>Please go to <b><a href='{1}' target='_blank' rel='noopener noreferrer' style='color: #1e90ff;'>Go to Settings Page</a></b> and enter your <b>Service Account Credential</b>.<br>"
+            "Check Quick Start Guide 👇:<br><a href='{0}' target='_blank'>Click here</a>"
+            "<a href='{2}' target='_blank' rel='noopener noreferrer' style='color: #1e90ff;'>ERPGulf.com</a></b>."
+).format(CHANGAI_GUIDE_LINK,settingsUrl,ERPGULF_LINK),
             title=_("Missing Service Account Credentials"),
         )
 
@@ -832,9 +829,12 @@ def _get_api_key_client(config):
                 "<a href='https://aistudio.google.com/app/apikey' target='_blank'>Google AI Studio</a>.<br><br>"
                 "<b>Option 2 (Vertex AI / Service Account):</b><br>"
                 "Fill in <b>Gemini Project ID</b>, <b>Gemini Location</b>, "
-                "and <b>Service Account Credentials</b> in <b>ChangAI Settings</b>.<br>"
-                "ChangAI Quick Start Guide 👇:<br><a href='{0}' target='_blank' rel='noopener noreferrer' style='color: #1e90ff;'>Click here</a>"
-            ).format(CHANGAI_GUIDE_LINK),
+                "and <b>Service Account Credentials</b> in <b><a href='{1}' target='_blank' rel='noopener noreferrer' style='color: #1e90ff;'>Got to Settings Page</a></b>.<br>"
+                "ChangAI Quick Start Guide 👇:<br>"
+                "<a href='{0}' target='_blank' rel='noopener noreferrer' style='color: #1e90ff;'>Click here</a><br>"
+                "<a href='{2}' target='_blank' rel='noopener noreferrer' style='color: #1e90ff;'>ERPGulf.com</a></b>."
+
+            ).format(CHANGAI_GUIDE_LINK,settingsUrl,ERPGULF_LINK),
             title=_("Gemini Authentication Not Configured"),
         )
 
@@ -870,36 +870,46 @@ def _handle_gemini_api_exception(e: Exception) -> None:
     if isinstance(e, google_exceptions.ResourceExhausted):
         frappe.throw(
             _("Gemini API quota exceeded.<br><br>Please wait and try again or upgrade your plan.<br>Check Quick Start Guide 👇:<br>"
-              "<a href='{0}' target='_blank' rel='noopener noreferrer' style='color: #1e90ff;'>Click here</a>").format(CHANGAI_GUIDE_LINK),
+            "<a href='{0}' target='_blank' rel='noopener noreferrer' style='color: #1e90ff;'>Click here</a><br>"
+            "<a href='{1}' target='_blank' rel='noopener noreferrer' style='color: #1e90ff;'>ERPGulf.com</a></b>."
+).format(CHANGAI_GUIDE_LINK,ERPGULF_LINK),
+
             title=_("Gemini Quota Exceeded"),
         )
     if isinstance(e, google_exceptions.Unauthenticated):
         frappe.throw(
             _("Gemini API key is invalid.<br><br>Please go to <b>ChangAI Settings</b> and enter a valid <b>Gemini API Key</b>.<br>"
-              "Check ChangAI Quick Start Guide 👇:<br><a href='{0}' target='_blank' rel='noopener noreferrer' style='color: #1e90ff;'>Click here</a>").format(CHANGAI_GUIDE_LINK),
+            "Check ChangAI Quick Start Guide 👇:<br><a href='{0}' target='_blank' rel='noopener noreferrer' style='color: #1e90ff;'>Click here</a><br>"
+            "<a href='{1}' target='_blank' rel='noopener noreferrer' style='color: #1e90ff;'>ERPGulf.com</a></b>."
+).format(CHANGAI_GUIDE_LINK,ERPGULF_LINK),
             title=_("Invalid Gemini API Key"),
         )
     if isinstance(e, google_exceptions.PermissionDenied):
         frappe.throw(
             _("Gemini API permission denied.<br><br>Please check your API key permissions.<br>"
-              "Check ChangAI Quick Start Guide 👇:<br><a href='{0}' target='_blank' rel='noopener noreferrer' style='color: #1e90ff;'>Click here</a>").format(CHANGAI_GUIDE_LINK),
+            "Check ChangAI Quick Start Guide 👇:<br><a href='{0}' target='_blank' rel='noopener noreferrer' style='color: #1e90ff;'>Click here</a><br>"
+            "<a href='{1}' target='_blank' rel='noopener noreferrer' style='color: #1e90ff;'>ERPGulf.com</a></b>."
+).format(CHANGAI_GUIDE_LINK,ERPGULF_LINK),
             title=_("Gemini Permission Denied"),
         )
     if isinstance(e, google_exceptions.InvalidArgument):
         frappe.throw(
             _("Invalid request to Gemini API: {0}<br>"
-              "Check ChangAI Quick Start Guide 👇:<br>"
-              "<a href='{1}' target='_blank' rel='noopener noreferrer' style='color: #1e90ff;'>Click here</a>").format(str(e),CHANGAI_GUIDE_LINK),
+            "Check ChangAI Quick Start Guide 👇:<br>"
+            "<a href='{1}' target='_blank' rel='noopener noreferrer' style='color: #1e90ff;'>Click here</a><br>"
+            "<a href='{2}' target='_blank' rel='noopener noreferrer' style='color: #1e90ff;'>ERPGulf.com</a></b>.").format(str(e),CHANGAI_GUIDE_LINK,ERPGULF_LINK),
             title=_("Gemini Invalid Request"),
         )
 
     frappe.log_error(frappe.get_traceback(), "Gemini API Unexpected Error")
     frappe.throw(
         _("Gemini API error: {0}<br>"
-          "Check ChangAI Quick Start Guide 👇:<br>"
-          "<a href='{1}' target='_blank' rel='noopener noreferrer' style='color: #1e90ff;'>Click here</a>").format(str(e),CHANGAI_GUIDE_LINK),
+        "Check ChangAI Quick Start Guide 👇:<br>"
+        "<a href='{1}' target='_blank' rel='noopener noreferrer' style='color: #1e90ff;'>Click here</a><br>"
+        "<a href='{2}' target='_blank' rel='noopener noreferrer' style='color: #1e90ff;'>ERPGulf.com</a></b>.").format(str(e),CHANGAI_GUIDE_LINK,ERPGULF_LINK),
         title=_("Gemini API Error"),
     )
+
 
 def gemini_client():
     global _GEMINI_CLIENT,_GEMINI_CONFIG
@@ -1290,6 +1300,9 @@ def rewrite_question(state: SQLState) -> SQLState:
             "formatting_prompt": prompt,
             "error": None,
         }
+    
+    except frappe.exceptions.ValidationError:
+        raise
 
     except Exception as e:
         publish_pipeline_update(
@@ -1719,7 +1732,7 @@ def get_master_vs():
                 frappe.throw(_(
                     "FAISS MASTER store not found at {0}.<br><br>"
                     "Please open "
-                    "<a href='{1}' target='_blank' rel='noopener noreferrer'>ChangAI Settings</a>"
+                    "<a href='{1}' target='_blank' rel='noopener noreferrer'>Go to Settings Page</a>"
                     "and click on the <b>Update Master Data</b> button in the Training tab.<br><br>"
                     "Check Quick Start Guide Here 👇<br>"
                     "<a href='{2}' target='_blank' rel='noopener noreferrer' style='color:#1e90ff;'>Click here</a><br><br><br>"
@@ -1831,11 +1844,11 @@ def detect_specific_entities(state: SQLState) -> SQLState:
             frappe.throw(_(
                 "Master Data does not exist. Because of this, results may not be accurate. "
                 "For better accuracy, please open "
-                "<a href='{0}' target='_blank' rel='noopener noreferrer' style='color:#1e90ff;'>ChangAI Settings</a> "
+                "<a href='{0}' target='_blank' rel='noopener noreferrer' style='color:#1e90ff;'>Go to Settings Page</a> "
                 "and click on the <b>Update Master Data</b> button in the Training tab.<br><br>"
                 "Check Quick Start Guide Here 👇:<br>"
                 "<a href='{1}' target='_blank' rel='noopener noreferrer' style='color: #1e90ff;'>Click here</a><br>"
-                "<a href='{3}' target='_blank' rel='noopener noreferrer' style='color:#1e90ff;'>ERPGulf.com</a>"
+                "<a href='{2}' target='_blank' rel='noopener noreferrer' style='color:#1e90ff;'>ERPGulf.com</a>"
             ).format(settingsUrl, CHANGAI_GUIDE_LINK, ERPGULF_LINK))
 
         if not res.get("update_status") and res.get("days", 0) > 0:
@@ -1843,7 +1856,7 @@ def detect_specific_entities(state: SQLState) -> SQLState:
                 "Your master data is {0} days old. "
                 "Because of this, results may not be accurate. "
                 "For better accuracy, please open "
-                "<a href='{1}' target='_blank' rel='noopener noreferrer' style='color:#1e90ff;'>ChangAI Settings</a> "
+                "<a href='{1}' target='_blank' rel='noopener noreferrer' style='color:#1e90ff;'>Go to Settings Page</a> "
                 "and click on the <b>Update Master Data</b> button in the Training tab.<br><br>"
                 "Check Quick Start Guide Here 👇:<br>"
                 "<a href='{2}' target='_blank' rel='noopener noreferrer' style='color: #1e90ff;'>Click here</a><br>"
@@ -2056,6 +2069,10 @@ Always mention that you are ChangAI by ERPGulf when introducing yourself."""
         try:
             res = call_gemini(question,sys_prompt)
             return {**state, "non_erp_res": res}
+        # except ValidationError as ve:
+        #     return {**state,"error":str(ve)}
+        except frappe.exceptions.ValidationError:
+            raise
         except Exception as e:
             return {**state, "non_erp_res": "Model Calling Failed .Please try Again","error":str(e)}
 
@@ -2633,14 +2650,14 @@ def _handle_non_erp(final: SQLState, user_question: str, chat_id: str) -> Dict:
 
 
 def _get_sql_error_message(err: Any, val: Dict) -> str:
-    if err:
-        frappe.log_error(err, "ChangAI SQL Pipeline Error")
-        return "⚠️ The model encountered an error generating your query. Please try the same Question again."
+    # if err:
+    #     frappe.log_error(err, "ChangAI SQL Pipeline Error")
+    #     return "⚠️ The model encountered an error generating your query. Please try the same Question again."
 
     error_text = (val.get("error") or "").strip()
 
     if not error_text:
-        return "⚠️ Could not process your request. Please try rephrasing."
+        return "⚠️ Could nprocess your request. Please try rephrasing."
 
     if "Empty SQL from LLM" in error_text:
         return "⚠️ The model could not generate a SQL query for your question. Please try rephrasing."
@@ -2768,7 +2785,7 @@ def get_last_thread_message(chat_id: str):
 
 THREAD_WORDS = [
     # English confirmation
-    "yes", "yep", "yeah", "yup", "yes please",
+    "yes", "yep", "yeah", "yup", "yes please","list",
     "of course", "sure", "surely", "absolutely",
     "definitely", "certainly", "indeed", "correct", "ofcourse",
     "right", "exactly", "precisely",
@@ -2776,14 +2793,14 @@ THREAD_WORDS = [
     "do it", "show me", "please", "go on",
     "continue", "proceed", "why not",
     "aye", "affirmative", "true", "agreed",
-    "hmm", "hm", "umm", "uh", "ah",
+    "hmm", "hm", "umm", "uh", "ah","give",
     "interesting", "i see", "got it", "ok got it",
     "and", "so", "then", "also", "but",
     "what", "how", "when", "who", "where", "why",
     "more", "less", "again", "another", "other",
     "next", "previous", "back", "forward",
     "noted", "understood", "makes sense",
-    "okay okay", "fine fine", "sure sure",
+    "okay okay", "fine fine", "sure sure","show",
     # Arabic confirmation
     "نعم", "أجل", "بالتأكيد", "طبعاً", "حسناً",
     "موافق", "صحيح", "بالضبط", "تماماً", "إي",
@@ -3010,3 +3027,13 @@ def get_embedding_engine_test():
         "load_time": time.time() - t3,
         "result": "loaded_now"
     }
+
+# @frappe.whitelist(allow_guest=True)
+# def rewrite_question(session_id):
+#     # request_id = state.get("request_id")
+#     # user_qstn = state.get("question") or ""
+#     # session_id = state.get("session_id")
+#     # sys_prompt = SQL_REWRITE_SYS_PROMPT
+#     user_qstn = "What are the top 5 selling products last month?"
+#     prompt = inject_prompt(user_qstn, session_id)
+#     return prompt

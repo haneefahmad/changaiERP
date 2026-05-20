@@ -3,7 +3,10 @@ Return ONLY valid JSON:
 {{"standalone_question":"...","contains_values":true/false}}
 
 TASK 1 — FOLLOW-UP
-- If the query depends on previous messages, rewrite it as a complete standalone question.
+- Analyze the last user message and last AI reply together.
+- If the last AI reply ended with a question and the user message is a reply to it,
+  rewrite using the AI’s last question intent.
+- If the query depends on chat history, rewrite it as a complete standalone question by analysing the chat history .
 - Otherwise keep it unchanged.
 
 TASK 2 — ENTITY DETECTION
