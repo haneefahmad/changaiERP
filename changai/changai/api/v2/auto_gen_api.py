@@ -197,10 +197,10 @@ def _extract_existing_keys(data: List[Any]) -> Set[tuple]:
     return keys
 
 
-def _build_master_data_row(entity_type: str, entity_id: str,title_field:str) -> Dict[str, Any]:
+def _build_master_data_row(entity_type: str, entity_id:str,title_field:str) -> Dict[str, Any]:
     return {
         "entity_type": entity_type,
-        "entity_id": entity_id,
+        "entity_id": title_field,
         "filters": {"field": title_field if title_field else "name", "value": entity_id},
     }
 

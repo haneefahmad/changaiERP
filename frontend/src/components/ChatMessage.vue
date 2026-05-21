@@ -38,6 +38,7 @@
             class="overflow-x-auto"
             :class="shouldCollapse && !isExpanded ? 'max-h-48 overflow-y-hidden' : ''"
             v-html="renderedMessage"
+            @click="handleMessageClick"
           ></div>
           <div
             v-if="shouldCollapse && !isExpanded"
@@ -272,7 +273,16 @@ function handleGlobalStop() {
 function isPlaceholderStatus() {
   return Boolean(props.message?.isStatus)
 }
+function handleMessageClick(event) {
+  const link = event.target.closest('a')
 
+  if (!link || !link.href) return
+
+  event.preventDefault()
+  event.stopPropagation()
+
+  window.open(link.href, '_blank', 'noopener,noreferrer')
+}
 const normalizedMessageText = computed(() => getSpeakableText(props.message?.text || ''))
 
 const isLoadingStatus = computed(() => (
@@ -356,4 +366,5 @@ onBeforeUnmount(() => {
     stopSpeech()
   }
 })
+
 </script>
