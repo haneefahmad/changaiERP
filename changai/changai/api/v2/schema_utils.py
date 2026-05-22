@@ -12,6 +12,18 @@ from frappe.utils import getdate
 from frappe import _
 from pathlib import Path
 
+
+def word_match(entity_word,values):
+    from changai.changai.api.v2.auto_gen_api import _read_filedoctype
+    from changai.changai.api.v2.text2sql_pipeline_v2 import is_erp_query
+    master_data_content = _read_filedoctype("master_data.yaml")
+    master_items = master_data_content["data"]
+    values = [item["filters"]["value"] for item in master_items]
+    response = is_erp_query(True, entity_word, values, 70)
+    return response
+        
+
+
 def _safe_join(base: Path, rel: str) -> Path:
     """
     Prevent path traversal. Only allow reading inside base directory.

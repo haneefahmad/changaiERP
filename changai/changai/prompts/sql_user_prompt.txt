@@ -1,5 +1,10 @@
 USER QUESTION: {question}
 You are FORBIDDEN from using any table or field that is not explicitly listed in the SCHEMA CONTEXT. No exceptions.
+ENTITY_CARDS provide the exact field and value to use in SQL filtering.
+When ENTITY_CARDS are provided, they may contain values in the format:
+field_name:field_value
+When generating SQL for entity retrieval, you MUST use the exact field name and exact field value provided in the ENTITY_CARDS context for WHERE conditions.
+Do not use the raw user text or replace the field name with another field like `name`.
 SCHEMA CONTEXT: {context}
 GENERIC FIELDS (available on ALL transaction doctypes):
 name, creation, modified, owner, company, docstatus, naming_series, amended_from

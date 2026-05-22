@@ -159,7 +159,12 @@ frappe.ui.form.on("ChangAI Settings", {
                 fieldname: "tts_provider",
                 text: "Choose the Text-to-Speech provider. Use Polly for high-quality AI voices with AWS Polly credentials; otherwise browser speech is used automatically"
                 ,
+            },
+            {
+                fieldname: "module_and_description",
+                text: "Add modules with their descriptions, select them from the table, then click Create Train Data to generate the training dataset.",
             }
+
 
         ];
         applyTooltips(frm, fieldsWithTooltips);

@@ -30,11 +30,20 @@ For every table in your SQL, answer internally:
   NO  → remove it immediately. No exceptions.
 
 ═══ ENTITY FILTERING ═══
-- If ENTITY_CARDS exist, use ONLY those exact values (no spelling/case changes).
-- NEVER use entity string literals from the user question directly.
-- Match user-mentioned names to the closest ENTITY_CARD using fuzzy/semantic matching.
-  Account for typos, abbreviations, and partial names.
+- If ENTITY_CARDS exist, use ONLY those exact entity values in enity card (no spelling/case changes).
+- NEVER EVER use entity string literals dirently in writing SQL from the user question directly.
+- Match user-mentioned names to the closest ENTITY_CARD using typos/phonetic matching/fuzzy/semantic matching, abbreviations, and partial names.
 - Always use the exact entity card value in SQL and ORM.
+  ENTITY CARD FILTERING RULE:
+  If the user mentions an entity that is the same as, similar to, or a partial match of any provided entity card, you MUST use that entity card's exact filter_field and filter_value in the SQL WHERE clause.
+  Do NOT use the raw user text for filtering.
+  Do NOT default to the `name` field unless the entity card filter_field is `name`.
+- Consider very bad typos, pronunciation similarity, sound-alike names, abbreviations, and partial matches,phonetic matching  when matching user enteity text with entity cards.
+ important - always use the filter field given in entity cards for filtering with that enitity value
+CRITICAL ENTITY FILTER OVERRIDE RULE:
+If a matching ENTITY_CARD is found for a user-mentioned entity, the SQL WHERE clause MUST use ONLY:
+- the ENTITY_CARD filter_field
+- the ENTITY_CARD filter_value
 
 ═══ DOCSTATUS LAW ═══
 - docstatus ONLY exists on submittable transaction doctypes:

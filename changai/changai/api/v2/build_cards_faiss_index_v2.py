@@ -18,6 +18,7 @@ def get_app_fvs_base():
         "changai", "api", "v2", "fvs_stores", "erpnext"
     )
 
+
 def get_private_fvs_base():
     return frappe.get_site_path("private", "changai", "fvs_stores", "erpnext")
 
@@ -271,10 +272,10 @@ def _build_entity_metadata(md: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "type": "entity",
         "entity_type": md.get("entity_type"),
-        "entity_id": md.get("entity_id"),
-        "canonical_name": md.get("canonical_name"),
-        "aliases": md.get("aliases", []),
-        "description": md.get("description", ""),
+        "entity_id": md.get('entity_id'),
+        "entity_label": f"{md.get('filters', {}).get('field')}:{md.get('filters', {}).get('value')}"
+        # "canonical_name": md.get("canonical_name"),
+        # "aliases": md.get("aliases", []),
     }
 
 
