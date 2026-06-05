@@ -1493,7 +1493,6 @@ Output format:
 
 
 
-@frappe.whitelist(allow_guest=True)
 def call_fvs_table_search(get_table: bool, q: str, request_id: str) -> List[str]:
     # get cached embedding
     publish_pipeline_update(
@@ -1561,7 +1560,6 @@ def build_hnsw_index(embeddings):
     
     return index
 
-@frappe.whitelist(allow_guest=True)
 def call_retrieve_multi_line(user_question: str, request_id: str) -> Dict[str, Any]:
     try:
         top_tables = call_fvs_table_search(True, user_question, request_id)
@@ -1592,7 +1590,7 @@ def call_retrieve_multi_line(user_question: str, request_id: str) -> Dict[str, A
     except Exception as e:
         return {"selected_fields": {}, "selected_tables": [], "top_tables": [], "error": str(e)}
 
-@frappe.whitelist(allow_guest=True)
+
 def call_fvs_field_search_global_k(
     user_question: str,
     selected_tables: List[str],
