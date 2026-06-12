@@ -15,7 +15,7 @@ Open-source AI assistant for ERPNext. Ask business questions in plain English an
 </div>
 
 
-> **Note:** The current version is trained on ERPNext modules only. Like any AI model, it is still learning and handles a good range of ERPNext queries well, but will not get everything right. Accuracy improves over time with more training data and feedback.
+> **Note:** The current version is trained on ERPNext modules only. Like any AI model, it is still learning and handles a good range of all ERPNext queries well, but will not get everything right. Accuracy improves over time with more training data and feedback.
 
 
 ## Table of Contents
