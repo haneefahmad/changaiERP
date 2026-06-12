@@ -51,8 +51,7 @@ class IntelligentStaticResponder:
 
         t1 = time.time()
         safe = _safe_open_path(alias_path, self._allowed_dir)
-        with open(safe, "r", encoding="utf-8") as f:
-            alias_map = json.load(f)
+        alias_map = json.loads(safe.read_text(encoding="utf-8"))
         print(f"[non_erp] alias json load: {time.time() - t1:.4f}s")
 
         t2 = time.time()
@@ -139,8 +138,7 @@ class IntelligentStaticResponder:
         self.responses_by_key.clear()
         self.keys.clear()
         safe = _safe_open_path(self.json_file, self._allowed_dir)
-        with open(safe, "r", encoding="utf-8") as f:
-            rows = json.load(f)
+        rows = json.loads(safe.read_text(encoding="utf-8"))
 
         processed_rows = []
 
@@ -190,16 +188,14 @@ class IntelligentStaticResponder:
         if rows is None:
             return
         safe = _safe_open_path(cache_path, self._allowed_dir)
-        with open(safe, "wb") as f:
-            pickle.dump(rows, f, protocol=pickle.HIGHEST_PROTOCOL)
+        safe.write_bytes(pickle.dumps(rows, protocol=pickle.HIGHEST_PROTOCOL))
 
     def _load_from_pickle(self, cache_path: str) -> None:
         self.entries.clear()
         self.responses_by_key.clear()
         self.keys.clear()
         safe = _safe_open_path(cache_path, self._allowed_dir)
-        with open(safe, "rb") as f:
-            rows = pickle.load(f)
+        rows = pickle.loads(safe.read_bytes())
 
         for row in rows:
             entry = ResponseEntry(

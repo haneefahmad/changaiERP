@@ -230,10 +230,7 @@ def clean_schema(schema: Dict[str, Any], output_path: str):
             ]
     allowed_dir = str(Path(output_path).parent.resolve())
     safe = _safe_open_path(output_path, allowed_dir)
-    with open(safe, "w") as f:
-        yaml.dump(schema, f, allow_unicode=True, sort_keys=False)
-
-    print(f"Cleaned schema written to {output_path}")
+    safe.write_text(yaml.dump(schema, allow_unicode=True, sort_keys=False), encoding="utf-8")
 
 
 def build_schema_docs(schema: Dict[str, Any]) -> List[Document]:
@@ -432,12 +429,10 @@ def save_field_matrix(schema_docs, base_dir):
     np.save(safe_dir / "field_embs.npy", embs)
     allowed_dir = str(safe_dir)
     safe_docs = _safe_open_path(str(safe_dir / "field_docs.pkl"), allowed_dir)
-    with open(safe_docs, "wb") as f:
-        pickle.dump(schema_docs, f)
+    safe_docs.write_bytes(pickle.dumps(schema_docs))
 
     safe_idx = _safe_open_path(str(safe_dir / "table_to_idx.pkl"), allowed_dir)
-    with open(safe_idx, "wb") as f:
-        pickle.dump(table_to_idx, f)
+    safe_idx.write_bytes(pickle.dumps(table_to_idx))
 
 
 def build_schema_fvs_job():

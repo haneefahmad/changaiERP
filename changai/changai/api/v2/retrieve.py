@@ -127,12 +127,10 @@ def load_field_matrix():
         frappe.throw(f"Missing field_embs.npy. Rebuild schema FVS first: {embs_path}")
 
     safe_docs = _safe_open_path(str(docs_path), allowed_dir)
-    with open(safe_docs, "rb") as f:
-        docs = pickle.load(f)
+    docs = pickle.loads(safe_docs.read_bytes())
 
     safe_table_idx = _safe_open_path(str(table_idx_path), allowed_dir)
-    with open(safe_table_idx, "rb") as f:
-        table_to_idx = pickle.load(f)
+    table_to_idx = pickle.loads(safe_table_idx.read_bytes())
 
     embs = np.load(embs_path, mmap_mode="r")
 
