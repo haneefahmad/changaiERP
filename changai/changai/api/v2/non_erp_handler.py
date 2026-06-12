@@ -4,6 +4,7 @@ import unicodedata
 import json
 import time
 import threading
+from pathlib import Path
 import pickle
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Set, Tuple, Any
@@ -23,9 +24,19 @@ class ResponseEntry:
     priority: int = 100
     is_active: bool = True
 
+def _safe_open_path(requested_path: str, allowed_dir: str) -> Path:
+    """Resolve path and ensure it stays within allowed_dir."""
+    allowed = Path(allowed_dir).resolve()
+    resolved = Path(requested_path).resolve()
+    if not str(resolved).startswith(str(allowed)):
+        raise ValueError(f"Path traversal blocked: {requested_path}")
+    return resolved
 
 class IntelligentStaticResponder:
     def __init__(self, json_file: str, alias_path: str):
+        self._allowed_dir = os.path.join(
+            frappe.get_app_path("changai"), "changai", "api", "v2", "assets"
+        )
         t0 = time.time()
 
         self.json_file = json_file
@@ -39,8 +50,8 @@ class IntelligentStaticResponder:
         self._arabic_detect_re = re.compile(r"[\u0600-\u06FF]")
 
         t1 = time.time()
-        # nosemgrep: frappe-semgrep-rules.rules.security.frappe-security-file-traversal
-        with open(alias_path, "r", encoding="utf-8") as f:
+        safe = _safe_open_path(alias_path, self._allowed_dir)
+        with open(safe, "r", encoding="utf-8") as f:
             alias_map = json.load(f)
         print(f"[non_erp] alias json load: {time.time() - t1:.4f}s")
 
@@ -127,8 +138,8 @@ class IntelligentStaticResponder:
         self.entries.clear()
         self.responses_by_key.clear()
         self.keys.clear()
-        # nosemgrep: frappe-semgrep-rules.rules.security.frappe-security-file-traversal
-        with open(self.json_file, "r", encoding="utf-8") as f:
+        safe = _safe_open_path(self.json_file, self._allowed_dir)
+        with open(safe, "r", encoding="utf-8") as f:
             rows = json.load(f)
 
         processed_rows = []
@@ -178,16 +189,16 @@ class IntelligentStaticResponder:
         rows = getattr(self, "_processed_rows_for_pickle", None)
         if rows is None:
             return
-        # nosemgrep: frappe-semgrep-rules.rules.security.frappe-security-file-traversal
-        with open(cache_path, "wb") as f:
+        safe = _safe_open_path(cache_path, self._allowed_dir)
+        with open(safe, "wb") as f:
             pickle.dump(rows, f, protocol=pickle.HIGHEST_PROTOCOL)
 
     def _load_from_pickle(self, cache_path: str) -> None:
         self.entries.clear()
         self.responses_by_key.clear()
         self.keys.clear()
-        # nosemgrep: frappe-semgrep-rules.rules.security.frappe-security-file-traversal
-        with open(cache_path, "rb") as f: # nosemgrep: cache_path derived from self.json_file, validated in __init__
+        safe = _safe_open_path(cache_path, self._allowed_dir)
+        with open(safe, "rb") as f:
             rows = pickle.load(f)
 
         for row in rows:
