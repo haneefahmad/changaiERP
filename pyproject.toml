@@ -35,7 +35,8 @@ dependencies = [
     "regex",
     "aiohttp",
     "paramiko",
-    "tomli-w"
+    "tomli-w",
+    "jellyfish" 
 ]
 
 [build-system]
