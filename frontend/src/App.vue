@@ -17,7 +17,13 @@ const autoReadEnabled = ref(true)
 const settings = ref(null)
 const isLoadingSettings = ref(false)
 const currentDebug = ref(null)
-const sendNonERPtoaiEnabled = ref(false)
+const sendNonERPtoaiEnabled = ref((() => {
+  try {
+    return localStorage.getItem('sendNonERPtoaiEnabled') === 'true'
+  } catch {
+    return false
+  }
+})())
 const ttsConfig = ref({
   enableVoiceChat: false,
   pollyAvailable: false,
@@ -48,14 +54,11 @@ function handleTtsProviderEvent(event) {
 
 async function loadSettings() {
   console.log('loadSettings called, frappe available:', !!window.frappe?.call)
-  console.log('loadSettings called')
   if (isLoadingSettings.value || settings.value) return
 
   isLoadingSettings.value = true
   try {
     settings.value = await getSettingsDetails(responseMode.value)
-    console.log('Full settings:', settings.value)          // 👈 add this
-    console.log('enable_changai raw value:', settings.value?.enable_changai) // 👈 add this
     ttsConfig.value = {
       enableVoiceChat: Boolean(settings.value?.enable_voice_chat),
       pollyAvailable: Boolean(settings.value?.polly_enabled),
@@ -126,19 +129,6 @@ async function handleChatSubmit(message) {
   chatHistory.value.push(thinkingMsg)
   await nextTick()
   scrollToBottom()
-
-  let cancelled = false
-  const chatId = getOrCreateChatId()
-  const requestId = `${chatId}_${Date.now()}`
-  const sendNonERPtoaiEnabled = ref(
-  localStorage.getItem('sendNonERPtoaiEnabled') === 'true'
-  )
-  console.log('sendNonErptoAI value being sent:', sendNonErptoAI, typeof sendNonErptoAI)
-  const eventName = `debug_${requestId}`
-  frappe.realtime.on(eventName, onPipelineUpdate)
-  const request = runPipelineCancelable(message,chatId, responseMode.value,requestId,sendNonERPtoaiEnabled.value)
-  let lastStepTime = Date.now()
-  const steps = []
   const onPipelineUpdate = (msg) => {
   const now = Date.now()
   const seconds = ((now - lastStepTime) / 1000).toFixed(2)
@@ -175,6 +165,14 @@ if (msg.done) {
 }
 }
 
+  let cancelled = false
+  const chatId = getOrCreateChatId()
+  const requestId = `${chatId}_${Date.now()}`
+  const eventName = `debug_${requestId}`
+  frappe.realtime.on(eventName, onPipelineUpdate)
+  const request = runPipelineCancelable(message,chatId, responseMode.value,requestId,sendNonERPtoaiEnabled.value)
+  let lastStepTime = Date.now()
+  const steps = []
   cancelPendingChatRequest.value = () => {
   if (cancelled) return
   cancelled = true
@@ -261,11 +259,14 @@ else if (response?.create_entity) {
   frappe.route_options = defaults
 
   frappe.set_route("Form", doctype, "new")
-
+  let attempts = 0
   const timer = setInterval(() => {
+    if (attempts++ > 50) {   // 50 × 200ms = 10 seconds timeout
+      clearInterval(timer)
+      return
+    }
     if (cur_frm && cur_frm.doctype === doctype && cur_frm.is_new()) {
       clearInterval(timer)
-
       Object.entries(defaults).forEach(([field, value]) => {
         if (value && cur_frm.fields_dict[field]) {
           cur_frm.set_value(field, value)
@@ -275,13 +276,14 @@ else if (response?.create_entity) {
     }
   }, 200)
 
+
   return
 }
 if (response?.stop_followup) {
   thinkingMsg.isStatus = false
   thinkingMsg.statusType = null
   thinkingMsg.cancelable = false
-  thinkingMsg.text = response.message || 'You’re welcome!'
+  thinkingMsg.text = response.message || "You’re welcome!"
 
   debugLogs.value.push({
     type: 'stop_followup',
@@ -309,7 +311,6 @@ if (response?.stop_followup) {
     currentDebug.value = null
   } catch (err) {
     if (cancelled) return
-    frappe.realtime.off(eventName, onPipelineUpdate)
     thinkingMsg.cancelable = false
     thinkingMsg.isStatus = false
     thinkingMsg.statusType = null

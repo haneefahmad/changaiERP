@@ -275,7 +275,7 @@ def guardrail_router(state: SQLState) -> SQLState:
     chat_id = state.get("session_id")
     raw_q = state.get("question") or ""
     try:
-        is_erp= is_erp_query(False,raw_q,BUSINESS_KEYWORDS,80)
+        is_erp= is_erp_query(False,raw_q,BUSINESS_KEYWORDS,90)
         if is_erp:
             query_type = "ERP"
         elif is_thread_erp(raw_q, chat_id):
@@ -1101,3 +1101,135 @@ def run_text2sql_pipeline(user_question: str, chat_id: str, request_id: str, sen
         return _error_response(memory_status, user_question, formatted_q, context,
                             selected_tables, fields, retried_sql2 or sql,
                             retry2_val_res, entity_debug, 2, final_error, err)
+
+
+@frappe.whitelist(allow_guest=False)
+def guardrail_router_test(question: str, session_id: str | None = None):
+    try:
+        is_erp = is_erp_query(
+            False,
+            question,
+            BUSINESS_KEYWORDS,
+            85
+        )
+
+        if is_erp:
+            query_type = "ERP"
+        elif session_id and is_thread_erp(question, session_id):
+            query_type = "ERP"
+        else:
+            query_type = "NON_ERP"
+
+        return {
+            "success": True,
+            "query_type": query_type,
+            "question": question,
+        }
+
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Guardrail Router Test Error")
+
+        return {
+            "success": False,
+            "query_type": "NON_ERP",
+            "error": str(e),
+        }
+    
+
+
+@frappe.whitelist(allow_guest=False)
+def is_erp_query_test(
+    question: str,
+    cutoff_perc: int = 90,
+    master_match: bool = False
+):
+    try:
+        if master_match:
+            matches = process.extract(
+                question.strip().lower(),
+                [v.strip().lower() for v in BUSINESS_KEYWORDS],
+                scorer=fuzz.WRatio,
+                limit=20
+            )
+
+            return {
+                "success": True,
+                "question": question,
+                "match_found": len(matches) > 0,
+                "matches": [
+                    {
+                        "keyword": keyword,
+                        "score": score
+                    }
+                    for keyword, score, *_ in matches
+                ]
+            }
+
+        words = tokenize_mixed(question)
+
+        inspected_words = []
+
+        for word in words:
+            skipped = False
+            skip_reason = None
+
+            if BUSINESS_KEYWORDS != THREAD_WORDS:
+                if word in STOP_WORDS:
+                    skipped = True
+                    skip_reason = "stop_word"
+
+                elif len(word) <= 2:
+                    skipped = True
+                    skip_reason = "too_short"
+
+            if skipped:
+                inspected_words.append({
+                    "word": word,
+                    "skipped": True,
+                    "reason": skip_reason
+                })
+                continue
+
+            match = process.extractOne(
+                word,
+                BUSINESS_KEYWORDS,
+                scorer=fuzz.ratio,
+                score_cutoff=cutoff_perc
+            )
+
+            inspected_words.append({
+                "word": word,
+                "skipped": False,
+                "match": match
+            })
+
+            if match:
+                keyword, score, *_ = match
+
+                return {
+                    "success": True,
+                    "question": question,
+                    "match_found": True,
+                    "matched_word": word,
+                    "matched_keyword": keyword,
+                    "score": score,
+                    "all_words": inspected_words
+                }
+
+        return {
+            "success": True,
+            "question": question,
+            "match_found": False,
+            "all_words": inspected_words
+        }
+
+    except Exception as e:
+        frappe.log_error(
+            frappe.get_traceback(),
+            "ERP Query Test Error"
+        )
+
+        return {
+            "success": False,
+            "error": str(e)
+        }
