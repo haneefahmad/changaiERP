@@ -3,7 +3,7 @@ import json
 from typing import Any, Dict, List, Tuple, Optional
 CHANGAI_GUIDE_LINK="https://app.erpgulf.com/en/articles/chang-ai-quick-start-guide"
 
-@frappe.whitelist(allow_guest=True)
+@frappe.whitelist(allow_guest=False)
 def execute_insert(payload: dict) -> Any:
     try:
         if isinstance(payload, str):
@@ -29,7 +29,7 @@ def execute_insert(payload: dict) -> Any:
                         doc.append(child_table, row)
 
             doc.insert(ignore_permissions=False)
-            frappe.db.commit()
+            
 
             result = {
                 "success": True,
@@ -68,7 +68,7 @@ def execute_insert(payload: dict) -> Any:
             doc = frappe.get_doc(payload["doctype"], parent_name)
             doc.append(payload["child_table"], payload["data"])
             doc.save(ignore_permissions=False)
-            frappe.db.commit()
+            
             return {
                 "success": True,
                 "operation": "insert_child",
@@ -108,7 +108,7 @@ def execute_insert(payload: dict) -> Any:
                 parent_doc.set(payload["link_via"], linked_doc.name)
                 parent_doc.save(ignore_permissions=False)
 
-            frappe.db.commit()
+            
             return {
                 "success": True,
                 "operation": "insert_linked",
@@ -153,7 +153,7 @@ def execute_insert(payload: dict) -> Any:
                 parent_doc.set(payload["link_via"], linked_doc.name)
                 parent_doc.save(ignore_permissions=False)
 
-            frappe.db.commit()
+            
             return {
                 "success": True,
                 "operation": "insert_linked_child",
@@ -189,7 +189,7 @@ def execute_insert(payload: dict) -> Any:
                         "error": str(e)
                     })
 
-            frappe.db.commit()
+            
             return {
                 "success": True,
                 "operation": "insert_bulk",
@@ -220,7 +220,7 @@ def execute_insert(payload: dict) -> Any:
                 **payload["data"]
             })
             doc.insert(ignore_permissions=False)
-            frappe.db.commit()
+            
             return {
                 "success": True,
                 "operation": "insert_if_not_exists",
@@ -333,7 +333,7 @@ def _unset_primary_flags(doc, child_table: str, data: dict):
                 row.set(flag, 0)
 
 
-@frappe.whitelist(allow_guest=True)
+@frappe.whitelist(allow_guest=False)
 def execute_update(payload: dict):
     try:
         if isinstance(payload, str):
@@ -401,7 +401,6 @@ def execute_update(payload: dict):
                     doc.set(field, value)
                 doc.save(ignore_permissions=False)
 
-            frappe.db.commit()
             return {
                 "success": True,
                 "operation": "update",
@@ -458,7 +457,6 @@ def execute_update(payload: dict):
                 doc.append(payload["child_table"], payload["data"])
 
             doc.save(ignore_permissions=False)
-            frappe.db.commit()
             return {
                 "success": True,
                 "operation": "update_child",
@@ -558,7 +556,6 @@ def execute_update(payload: dict):
                     linked_doc.append(payload["child_table"], payload["data"])
 
                 linked_doc.save(ignore_permissions=False)
-                frappe.db.commit()
                 return {
                     "success": True,
                     "operation": operation,
@@ -573,7 +570,6 @@ def execute_update(payload: dict):
                 for field, value in payload["data"].items():
                     linked_doc.set(field, value)
                 linked_doc.save(ignore_permissions=False)
-                frappe.db.commit()
                 return {
                     "success": True,
                     "operation": operation,
@@ -607,7 +603,7 @@ def execute_update(payload: dict):
         frappe.log_error(frappe.get_traceback(), "execute_update Failed")
         return {"error": f"Update Failed: {str(e)}\n Check Quick Start Guide Here 👇:\n {CHANGAI_GUIDE_LINK}"}
 
-@frappe.whitelist(allow_guest=True)
+@frappe.whitelist(allow_guest=False)
 def execute_delete(payload:dict):
     try:
         if isinstance(payload, str):
@@ -647,7 +643,7 @@ def execute_delete(payload:dict):
                 )
                 deleted.append(record.name)
 
-            frappe.db.commit()
+            
 
             return {
                 "success": True,
@@ -686,7 +682,7 @@ def execute_delete(payload:dict):
             deleted = before - len(doc.get(payload["child_table"]))
 
             doc.save(ignore_permissions=False)
-            frappe.db.commit()
+            
 
             return {
                 "success": True,
@@ -769,7 +765,7 @@ def execute_delete(payload:dict):
 
                 linked_doc.save(ignore_permissions=False)
 
-                frappe.db.commit()
+                
 
                 return {
                     "success": True,
@@ -790,7 +786,7 @@ def execute_delete(payload:dict):
                 ignore_permissions=False
             )
 
-            frappe.db.commit()
+            
 
             return {
                 "success": True,
