@@ -232,6 +232,13 @@ def is_master_data_changed(last_sync, stored_data: list):
             if rec.get(title_field):
                 live_titles.add(rec.get(title_field))
 
+        stored_titles = {
+            (item.get("filters") or {}).get("value")
+            for item in stored_data
+            if item.get("entity_type") == entity_type
+            and (item.get("filters") or {}).get("value")
+        }
+
         if stored_titles != live_titles:
             return True
 
@@ -569,6 +576,14 @@ def get_settings() -> Dict[str, Any]:
         "aws_access_key_id": settings.aws_access_key_id,
         "aws_secret_access_key": settings.aws_secret_access_key,
         "enable_voice_chat": settings.enable_voice_chat,
+        "grok_api_key": getattr(settings, "xai_api_key", None) or "",
+        "grok_model": getattr(settings, "grok_model", None) or "grok-3-mini",
+        "groq_api_key": getattr(settings, "groq_api_key", None) or "",
+        "groq_model": getattr(settings, "groq_model", None) or "llama-3.3-70b-versatile",
+        "openai_api_key": getattr(settings, "openai_api_key", None) or "",
+        "openai_model": getattr(settings, "openai_model", None) or "gpt-4o-mini",
+        "claude_api_key": getattr(settings, "claude_api_key", None) or "",
+        "claude_model": getattr(settings, "claude_model", None) or "claude-opus-4-8",
     }
     return config
 
@@ -1015,5 +1030,3 @@ def hits_to_schema_context(
         acc.sort()
     lines = _build_context_lines(acc, title, max_fields_per_table, show_entity_filters_yaml)
     return "\n".join(lines)
-
-
